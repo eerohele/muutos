@@ -1,0 +1,13 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: JVMChaos
+metadata:
+  name: stress
+spec:
+  action: stress
+  mode: one
+  memType: heap
+  selector:
+    namespaces:
+      - default
+    labelSelectors:
+      'app': 'app'

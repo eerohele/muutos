@@ -1,0 +1,6 @@
+[tools]
+clojure = "latest"
+java = "25"
+just = "latest"
+mkcert = "latest"
+postgres = "17.2"

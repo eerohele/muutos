@@ -1,0 +1,36 @@
+{:deps {org.clojure/clojure {:mvn/version "1.12.3"}}
+ :aliases {:dev {:extra-paths ["dev/src" "test"]
+                 :jvm-opts ["-Djavax.net.ssl.trustStore=dev/jks/dev.jks"
+                            "-Djavax.net.ssl.trustStorePassword=muutos"
+                            "-Djdk.tracePinnedThreads=full"]
+                 :extra-deps {com.widdindustries/time-literals {:mvn/version "0.1.10"}
+                              clj-test-containers/clj-test-containers {:mvn/version "0.7.4"}
+                              org.clojure/data.json {:mvn/version "2.5.1"}
+                              org.clojure/test.check {:mvn/version "1.1.1"}
+                              org.clojure/core.async {:mvn/version "1.9.829-alpha2"}
+                              com.github.seancorfield/honeysql {:git/url "https://github.com/seancorfield/honeysql.git" :git/sha "df16975458ae1d576b61e23cb176ff1d45d864bb"}
+                              nubank/matcher-combinators {:mvn/version "3.9.2"}
+                              org.pastalab.fray/fray-core {:mvn/version "0.6.8"}
+                              org.pastalab.fray/fray-runtime {:mvn/version "0.6.8"}
+                              org.pastalab.fray/fray-junit {:mvn/version "0.6.8"}
+                              org.pastalab.fray.instrumentation/fray-instrumentation-base {:mvn/version "0.6.8"}
+                              org.pastalab.fray.instrumentation/fray-instrumentation-jdk {:mvn/version "0.6.8"}
+                              lambdaisland/kaocha {:mvn/version "1.91.1392"}
+                              org.clojure/tools.logging {:mvn/version "1.3.0"}
+                              ch.qos.logback/logback-classic {:mvn/version "1.5.20"}
+                              com.cognitect/transcriptor {:mvn/version "0.1.5"}
+                              ;; For round-trip/oracle testing e.g. NUMERIC <-> BigDecimal until
+                              ;; we have an impl for encoding them.
+                              org.postgresql/postgresql {:mvn/version "42.7.8"}}}
+
+           :app {:local/root "dev/app"}
+
+           :quickdoc {:deps {io.github.borkdude/quickdoc {:git/sha "14a6ecc6d78ed719b6540f0ad1439d38ff7d39b5"}}
+                      :main-opts ["-m" "babashka.cli.exec" "quickdoc.api" "quickdoc"]
+                      :exec-args {:outfile "docs/API.md"
+                                  :source-uri "https://github.com/eerohele/muutos/blob/{branch}/{filename}#L{row}-L{end-row}"}}
+
+           :build {:deps {com.github.liquidz/build.edn {:mvn/version "0.11.266"}}
+                   :ns-default build-edn.main}
+
+           :debug {:jvm-opts ["-J-Djavax.net.debug=ssl,handshake,failure"]}}}

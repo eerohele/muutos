@@ -1,0 +1,56 @@
+;; TRANSACTIONS
+
+;; See https://github.com/ghadishayban/squee/blob/cf51ca427b2967bdd87527766ed342c2642fcd1a/src/squee/jdbc.clj#L16 for inspiration
+
+;; TODO: Think through, craft API, lots of tests.
+(defn ^:private transact
+  ([client f] (transact client f {}))
+  ([client f {:keys [isolation-level capability deferrable?]
+              :or {isolation-level :serializable
+                   capability :read-write
+                   deferrable? false}}]
+   (sq client
+     (format "start transaction isolation level %s, %s, %s"
+       (name isolation-level)
+       (if (= :read-only capability) "read only" "read write")
+       (if deferrable? "deferrable" "not deferrable")))
+   (try
+     (let [ret (f client)]
+       (sq client "commit")
+       ret)
+     (catch Exception ex
+       (sq client "rollback")
+       (throw ex)))))
+
+(defmacro ^:private with-tx
+  [[sym client opts] & body]
+  `(transact ~client (^:once fn* [~sym] (do ~@body)) ~opts))
+
+(comment
+  (def pg (connect))
+  (.close pg)
+  
+  (sq pg "DROP TABLE t;")
+  
+  (transact pg
+    (fn [tx]
+      (sq tx "CREATE TABLE t (a int);")
+      (sq tx "INSERT INTO t VALUES (1);")
+      (throw (Exception.))))
+  
+  (sq pg "SELECT * FROM t;")
+  
+  (with-tx [tx pg]
+    (sq tx "CREATE TABLE t (a int);")
+    (sq tx "INSERT INTO t VALUES (1);")
+    (throw (Exception.)))
+  
+  (sq pg "SELECT * FROM t;")
+  
+  (with-tx [tx pg]
+    (sq tx "CREATE TABLE t (a int);")
+    (sq tx "INSERT INTO t VALUES (1);")
+    (sq tx "SELECT * FROM t;"))
+  
+  (sq pg "SELECT * FROM t;")
+  ,,,)

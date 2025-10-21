@@ -1,0 +1,4 @@
+{:licenses [{:name "MIT License" :url "https://opensource.org/license/mit"}]
+ :lib me.flowthing/muutos
+ :description "A zero-dependency PostgreSQL logical decoding client library."
+ :version "{{now/yyyy}}-{{now/mm}}-{{now/dd}}.{{git/commit-count}}-alpha"}

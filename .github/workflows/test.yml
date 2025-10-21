@@ -1,0 +1,107 @@
+name: Tests
+
+on:
+  push:
+    branches: [ main ]
+
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Clone repository
+        uses: actions/checkout@v5
+
+      - name: Install JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: "temurin"
+          java-version: "25"
+
+      - name: Install Clojure CLI
+        uses: DeLaGuardo/setup-clojure@13.4
+        with:
+          cli: 1.12.3.1577
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            .cpcache
+          key: deps-${{ hashFiles('deps.edn') }}
+          restore-keys: deps-
+
+      - name: Run tests
+        run: clojure -J-Dclojure.main.report=stderr -X:dev kaocha.runner/exec-fn :reporter kaocha.report/documentation
+
+  transcribe:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Clone repository
+        uses: actions/checkout@v5
+
+      - name: Install JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: "temurin"
+          java-version: "25"
+
+      - name: Install Clojure CLI
+        uses: DeLaGuardo/setup-clojure@13.4
+        with:
+          cli: 1.12.3.1577
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            .cpcache
+          key: deps-${{ hashFiles('deps.edn') }}
+          restore-keys: deps-
+
+      - uses: jdx/mise-action@v3
+        with:
+          version: 2025.3.11
+          install: true
+          cache: true
+          mise_toml: |
+            [tools]
+            mkcert = "1.4.4"
+
+      - name: Generate certificates
+        run: mkcert -key-file dev/certs/server.key -cert-file dev/certs/server.crt localhost
+
+      - name: Import certificates
+        run: openssl x509 -inform PEM -outform DER -in "$(mkcert -CAROOT)/rootCA.pem" | keytool -noprompt -import -alias myserver -keystore dev/jks/dev.jks -storepass muutos
+
+      - name: Set SSL key and certificate file permissions
+        run: |
+          sudo chown 999:999 dev/certs/server.key
+          sudo chmod 600 dev/certs/server.key
+          sudo chmod 644 dev/certs/server.crt
+
+      - run: |
+          curl -sL https://raw.githubusercontent.com/devrimgunduz/pagila/refs/heads/master/pagila-schema.sql -o dev/sql/1-pagila-schema.sql
+          curl -sL https://raw.githubusercontent.com/devrimgunduz/pagila/refs/heads/master/pagila-schema-jsonb.sql -o dev/sql/2-pagila-schema-jsonb.sql
+          curl -sL https://raw.githubusercontent.com/devrimgunduz/pagila/refs/heads/master/pagila-data.sql -o dev/sql/3-pagila-data.sql
+
+      - name: Start services
+        run: docker compose up --build --detach
+
+      - name: Run transcriptions
+        run: clojure -J-Dclojure.main.report=stderr -X:dev user/check!
+
+      - name: Stop services
+        if: always()
+        run: docker compose down --volumes --remove-orphans
+
+      - name: Print Docker Compose logs
+        if: always()
+        run: docker compose logs

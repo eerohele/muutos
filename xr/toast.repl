@@ -1,0 +1,85 @@
+;; https://debezium.io/blog/2019/10/08/handling-unchanged-postgres-toast-values/
+;;
+;; >One way, and certainly the easiest from a consumer’s perspective, is to
+;; >avoid the situation in the first place. This can be achieved by using a
+;; >"replica identity" of FULL for the Postgres table in question.
+;; >
+;; >Alternatively, the replica identity can be based on an index which
+;; >comprises the TOAST-able column.
+(set! *warn-on-reflection* true)
+
+(require '[cognitect.transcriptor :as xr])
+(require '[matcher-combinators.standalone :refer [match]])
+
+(defn matches? [v]
+  (= :match (:match/result v)))
+
+(import '(java.lang AutoCloseable))
+(require '[muutos.sql-client :refer [connect create-slot drop-slot eq]])
+
+(def pg (connect))
+(xr/on-exit #(AutoCloseable/.close pg))
+
+(create-slot pg "toast_slot")
+(xr/on-exit #(drop-slot pg "toast_slot"))
+
+(eq pg ["CREATE PUBLICATION toast_publication FOR ALL TABLES"])
+(xr/on-exit #(eq pg ["DROP PUBLICATION toast_publication"]))
+
+(require '[muutos.subscriber :as subscriber])
+
+(import '(java.util.concurrent BlockingQueue LinkedBlockingQueue TimeUnit))
+
+(def ^BlockingQueue rcvq (LinkedBlockingQueue. 64))
+(def ^BlockingQueue ackq (LinkedBlockingQueue. 1))
+
+(defn poll [^BlockingQueue rcvq]
+  (.poll rcvq 1 TimeUnit/SECONDS))
+
+(def subscriber
+  (subscriber/connect "toast_slot"
+    :publications #{"toast_publication"}
+    :handler (fn handle
+               ([msg] (.put rcvq msg))
+               ([msg ack]
+                (handle msg)
+                (.take ackq)
+                (ack)))))
+
+(xr/on-exit #(AutoCloseable/.close subscriber))
+
+;; Create a table for holding big strings.
+(eq pg
+  ["CREATE TABLE t (id int PRIMARY KEY GENERATED ALWAYS AS IDENTITY, m TEXT NOT NULL, s TEXT NOT NULL)"]
+  ["ALTER TABLE t ALTER COLUMN s SET STORAGE EXTERNAL"]
+  ["ALTER TABLE t SET (toast_tuple_target = 128)"])
+
+(xr/on-exit #(eq pg ["DELETE FROM t"] ["DROP TABLE t"]))
+
+;; Put big, TOASTed string into database.
+(eq pg ["INSERT INTO t (m, s) VALUES ('a', repeat('x', 10000)) RETURNING id"])
+
+(poll rcvq) ; :begin
+(poll rcvq) ; :relation
+(poll rcvq) ; :insert
+(poll rcvq) ; :commit
+(.put ackq ::ack)
+
+;; Update the row without updating the TOASTed value.
+(eq pg ["UPDATE t SET m = 'b' WHERE m = 'a' RETURNING id"])
+
+(poll rcvq) ; :begin
+(poll rcvq) ; :update
+
+(xr/check! #{{:type :update
+              :keys ["id"]
+              :new-row {"id" 1 "m" "b" "s" :unchanged-toasted-value}
+              :schema "public"
+              :table "t"}})
+
+(poll rcvq) ; :commit
+(.put ackq ::ack)
+
+;; send quit signal to handler fn
+(poll rcvq)
+(.put ackq ::quit)

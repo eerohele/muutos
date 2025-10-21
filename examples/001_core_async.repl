@@ -1,0 +1,114 @@
+(import '(java.lang AutoCloseable))
+
+(set! *warn-on-reflection* true)
+
+(require '[clojure.repl.deps :as deps])
+(require '[clojure.tools.logging :as log])
+
+(defn log
+  [level event data]
+  (log/log level (cond-> {:event event} data (assoc :data data))))
+
+(deps/add-libs
+  '{me.flowthing/pp {:mvn/version "2024-11-13.77"}})
+
+(require '[muutos.sql-client :refer [connect create-slot drop-slot emit-message eq]])
+
+(def pg (connect :log log))
+(meta pg)
+#_(AutoCloseable/.close pg)
+
+(eq pg ["CREATE PUBLICATION p FOR ALL TABLES"])
+(create-slot pg "s")
+
+(require '[clojure.core.async :as async])
+(require '[muutos.subscriber :as subscriber])
+(require '[me.flowthing.pp :as pp])
+
+(def chan (async/chan 64))
+(def ack-chan (async/chan 1))
+(def exit-chan (async/chan 1))
+
+(add-tap #'pp/pprint)
+
+(def tx-batching-consumer
+  (async/go-loop [state {} batch []]
+    (when-let [[{:keys [msg ack-chan]} alt-chan] (async/alts!! [chan exit-chan])]
+      (cond
+        (= alt-chan exit-chan)
+        (log :info ::exit {})
+
+        (= :begin (:type msg))
+        (recur
+          (assoc state
+            :lsn (:lsn msg)
+            :xid (:xid msg)
+            :commit-timestamp (:commit-timestamp msg)) batch)
+
+        (= :relation (:type msg))
+        (recur state batch)
+
+        (= :commit (:type msg))
+        (do
+          ;; Do whatever with the batch.
+          (tap> batch)
+          ;; Inform Postgres that we've successfully processed the entire
+          ;; batch.
+          (async/>! ack-chan ::ack)
+          ;; Wipe the slate and start a new batch.
+          (recur {} []))
+
+        :else
+        (recur state
+          (conj batch
+            ;; Add the data in the :begin message to every message in the
+            ;; batch, if you want.
+            (assoc msg
+              :lsn (:lsn state)
+              :xid (:xid state)
+              :commit-timestamp (:commit-timestamp state))))))))
+
+(comment
+  (async/>!! exit-chan ::exit)
+  (async/close! tx-batching-consumer)
+  ,,,)
+
+(defn handle
+  ([msg] (async/>!! chan {:msg msg}))
+  ([msg ack]
+   (async/>!! chan {:msg msg :ack-chan ack-chan})
+   (async/go
+     (when (identical? ::ack (async/<! ack-chan))
+       (ack)))))
+
+(def subscriber
+  (subscriber/connect "s"
+    :publications #{"p"}
+    :log log
+    :handler handle))
+
+#_(AutoCloseable/.close subscriber)
+
+;; A single-item batch.
+(emit-message pg "my-prefix" "Hello, world!")
+
+;; Create a test relation.
+(eq pg ["CREATE TABLE t (id int PRIMARY KEY, s TEXT NOT NULL)"])
+
+;; A multi-item batch.
+(eq pg
+  ["INSERT INTO t (id, s) VALUES ($1, $2) RETURNING *" 1 "a"]
+  ["INSERT INTO t (id, s) VALUES ($1, $2) RETURNING *" 2 "b"]
+  ["UPDATE t SET s = $2 WHERE id = $1 RETURNING *" 1 "c"])
+
+(AutoCloseable/.close subscriber)
+
+;; Drop the test relation.
+(eq pg ["DROP TABLE t"])
+
+;; Drop the replication slot to prevent PostgreSQL from accumulating write-
+;; ahead logs.
+(drop-slot pg "s")
+
+;; Close SQL client.
+(.close pg)

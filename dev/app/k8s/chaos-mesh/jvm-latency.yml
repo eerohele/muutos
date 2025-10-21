@@ -1,0 +1,15 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: JVMChaos
+metadata:
+  name: latency
+spec:
+  action: latency
+  mode: one
+  class: java.net.InputStream
+  method: readNBytes
+  latency: 50
+  selector:
+    namespaces:
+      - default
+    labelSelectors:
+      'app': 'app'

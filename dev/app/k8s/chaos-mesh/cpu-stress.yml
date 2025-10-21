@@ -1,0 +1,16 @@
+# https://chaos-mesh.org/docs/simulate-heavy-stress-on-kubernetes/
+apiVersion: chaos-mesh.org/v1alpha1
+kind: StressChaos
+metadata:
+  name: cpu-stress
+spec:
+  mode: one
+  selector:
+    namespaces:
+      - default
+    labelSelectors:
+      'app': 'app'
+  stressors:
+    cpu:
+      workers: 2
+      load: 30

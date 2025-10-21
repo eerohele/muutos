@@ -1,0 +1,52 @@
+services:
+  pg-src:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./dev/certs:/etc/postgresql/certs
+      - ./dev/sql:/docker-entrypoint-initdb.d
+    build: .
+    command: >
+      postgres -c ssl=on
+               -c ssl_cert_file=/etc/postgresql/certs/server.crt
+               -c ssl_key_file=/etc/postgresql/certs/server.key
+               -c wal_level=logical
+               -c log_error_verbosity='verbose'
+               -c max_wal_senders=2
+               -c max_replication_slots=1
+               -c timezone='Europe/Helsinki'
+               -c shared_preload_libraries=pg_cron
+               -c cron.database_name=postgres
+               -c fsync=off
+               -c synchronous_commit=off
+               -c full_page_writes=off
+               -c autovacuum=off
+               -c shared_buffers=128MB
+               -c work_mem=16MB
+               -c maintenance_work_mem=64MB
+               -c checkpoint_timeout=1h
+  pg-dst:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "5433:5433"
+    command: >
+      postgres -p 5433 -c timezone='Europe/Helsinki'

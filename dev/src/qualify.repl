@@ -1,0 +1,77 @@
+(set! *warn-on-reflection* true)
+
+(require '[muutos.sql-client :refer [connect eq]])
+
+;; FIXME: Make this built-in, use tooling connection, make cache pluggable,
+;; default ConcurrentHashMap?
+
+(def ^:private q-table-meta-for-oid
+  "A SQL query that returns metadata for a PostgreSQL table.
+
+  Parameters:
+
+    $1: The object ID (OID) of the table.
+
+  [1] See relkind in https://www.postgresql.org/docs/current/catalog-pg-class.html."
+  "SELECT n.nspname AS schema, c.relname AS table
+   FROM pg_class c
+   INNER JOIN pg_namespace n ON c.relnamespace = n.oid
+   WHERE relkind IN ('r', 'v', 'm', 'f', 'p') AND c.oid = $1
+   LIMIT 1")
+
+(defn ^:private table-meta-for-oid
+  "Given a SQL client and a table OID, return metadata on the table."
+  [client oid]
+  (peek (eq client [q-table-meta-for-oid oid])))
+
+(require '[clojure.repl.deps :as deps])
+(deps/add-libs '{com.github.ben-manes.caffeine/caffeine {:mvn/version "3.2.2"}})
+(import '(com.github.benmanes.caffeine.cache LoadingCache Caffeine))
+
+(def ^:private q-table-meta-all
+  "A SQL query that returns metadata for all PostgreSQL tables in a database."
+  "SELECT c.oid AS oid, n.nspname AS schema, c.relname AS table
+   FROM pg_class c
+   INNER JOIN pg_namespace n ON c.relnamespace = n.oid
+   WHERE relkind IN ('r', 'v', 'm', 'f', 'p')")
+
+(defn ^:private oid->table-meta
+  [client]
+  (reduce (fn [oid->meta m]
+            (assoc oid->meta (get m "oid") (dissoc m "oid")))
+    {}
+    (eq client [q-table-meta-all])))
+
+(defn table-name
+  "Given a SQL client and a table OID, return the name of the table."
+  [client oid]
+  (let [m (table-meta-for-oid client oid)]
+    (get m "table")))
+
+(defn make-key-fn [client]
+  (let [seed (->
+               (oid->table-meta client)
+               (update-vals (fn [meta] (get meta "table"))))
+
+        ^LoadingCache cache (doto
+                              (..
+                                (Caffeine/newBuilder)
+                                (maximumSize 1000)
+                                (build (fn [oid] (table-name client oid))))
+                              (.putAll seed))]
+    (fn
+      ([]
+       (.invalidateAll cache)
+       (java.lang.AutoCloseable/.close client))
+      ([table-oid attr-name]
+       (let [table-name (.get cache table-oid)]
+         (keyword table-name attr-name))))))
+
+(def pg
+  (let [pg-impl (connect)
+        key-fn (make-key-fn pg-impl)]
+    (connect :key-fn key-fn)))
+
+#_(.close pg)
+
+(time (eq pg ["SELECT * FROM film LIMIT 10"]))

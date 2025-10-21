@@ -1,0 +1,46 @@
+(set! *warn-on-reflection* true)
+
+(require '[muutos.sql-client :refer [connect create-slot drop-slot eq]])
+
+(def pg (connect))
+#_(.close pg)
+
+(create-slot pg "s")
+
+(require '[muutos.subscriber :as subscriber])
+(require '[clojure.pprint :as pprint])
+
+(def handler
+  (bound-fn
+    ([{:keys [type] :as msg}]
+     (pprint/pprint (cond-> msg
+       (= :message type) (update :content (fn [^bytes content] (String. content "UTF-8"))))))
+    ([msg ack]
+     (handler msg)
+     (ack))))
+
+(def subscriber
+  (subscriber/connect "s" :handler handler))
+
+#_(.close subscriber)
+
+(def q-schedule-message
+  "SELECT cron.schedule(
+     'emit-message',
+     $1,
+     $$SELECT pg_logical_emit_message(
+       true,
+       'my-prefix',
+       'Hello from scheduled job at ' || now()
+     )$$
+   )")
+
+(def job-id
+  (-> (eq pg [q-schedule-message "5 seconds"]) first (get "schedule")))
+
+(eq pg ["SELECT cron.unschedule($1)" job-id])
+
+(.close subscriber)
+(drop-slot pg "s")
+
+(.close pg)

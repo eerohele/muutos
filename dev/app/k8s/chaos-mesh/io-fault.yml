@@ -1,0 +1,16 @@
+# https://chaos-mesh.org/docs/simulate-io-chaos-on-kubernetes/
+apiVersion: chaos-mesh.org/v1alpha1
+kind: IOChaos
+metadata:
+  name: io-fault
+spec:
+  action: fault
+  mode: one
+  selector:
+    labelSelectors:
+      app: app
+  volumePath: /data
+  path: /data/**/*
+  errno: 5
+  percent: 50
+  duration: '400s'

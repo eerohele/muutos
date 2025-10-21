@@ -1,0 +1,17 @@
+destroy:
+  kubectl delete --filename=k8s/app.yml
+  kubectl delete --filename=k8s/postgres.yml
+
+create:
+  clj -T:build image
+  kubectl apply --filename=k8s/postgres.yml
+  kubectl wait --for=condition=ready pod --selector=app=postgres --timeout=10s
+  kubectl apply --filename=k8s/app.yml
+
+restart:
+  kubectl rollout restart deployment/app
+
+port-forward:
+  kubectl port-forward svc/postgres 5432:5432
+
+recreate: destroy create port-forward

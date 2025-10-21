@@ -1,0 +1,9 @@
+dev/jks/*.jks
+*.der
+*.crt
+*.key
+.clj-kondo/.cache
+dev/sql/*pagila*.sql
+.clerk
+repl/
+target/

@@ -1,0 +1,107 @@
+# Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: postgres
+---
+# ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pg-init-scripts
+  namespace: postgres
+data:
+  pg_cron.sql: |
+    CREATE EXTENSION pg_cron;
+---
+# PersistentVolumeClaim
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  namespace: postgres
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+# Secret
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-secret
+  namespace: postgres
+type: Opaque
+data:
+  # Base64 encoded password for 'postgres'
+  POSTGRES_PASSWORD: cG9zdGdyZXM=
+---
+# Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:17
+        ports:
+        - containerPort: 5432
+        command: ["/bin/bash", "-c"]
+        args:
+          - |
+            apt-get update && apt-get install -y postgresql-17-cron && rm -rf /var/lib/apt/lists/*;
+            exec docker-entrypoint.sh postgres;
+        env:
+        - name: POSTGRES_USER
+          value: "postgres"
+        - name: POSTGRES_DB
+          value: "postgres"
+        - name: POSTGRES_HOST_AUTH_METHOD
+          value: "scram-sha-256"
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: POSTGRES_PASSWORD
+        - name: POSTGRES_INITDB_ARGS
+          value: "--auth-host=scram-sha-256 -c wal_level=logical -c max_wal_senders=2 -c max_replication_slots=1 -c shared_preload_libraries=pg_cron -c cron.host='' -c cron.database_name=postgres"
+        volumeMounts:
+        - mountPath: /docker-entrypoint-initdb.d/
+          name: init-scripts
+        - mountPath: /var/lib/postgresql/data
+          name: postgres-data
+      volumes:
+      - name: init-scripts
+        configMap:
+          name: pg-init-scripts
+      - name: postgres-data
+        persistentVolumeClaim:
+          claimName: postgres-pvc
+---
+# Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: postgres
+spec:
+  selector:
+    app: postgres
+  ports:
+  - protocol: TCP
+    port: 5432
+    targetPort: 5432
+  type: ClusterIP

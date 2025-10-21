@@ -1,0 +1,129 @@
+;; A REPL session that demonstrates how to add support for encoding Clojure
+;; collections to JSONB and decoding JSONB into Clojure collections.
+
+(set! *warn-on-reflection* true)
+
+;; Bring in a JSON lib.
+(require '[clojure.repl.deps :as deps])
+(deps/add-lib 'org.clojure/data.json)
+(require '[clojure.data.json :as json])
+(require '[clojure.java.io :as io])
+
+(import '(clojure.lang IPersistentCollection))
+(import '(java.io ByteArrayInputStream ByteArrayOutputStream))
+(import '(java.nio ByteBuffer))
+
+(require '[muutos.codec.bin :as bin])
+
+;; Define a function that encodes a Clojure collection into a JSON byte array.
+(defn encode-jsonb [v]
+  (with-open [baos (ByteArrayOutputStream.)]
+    ;; Prepend JSONB version byte.
+    (.write baos (byte 1))
+
+    (with-open [writer (io/writer baos)]
+      (json/write v writer))
+
+    (ByteBuffer/wrap (.toByteArray baos))))
+
+;; Tell Muutos to encode any Clojure collection you give as a parameter to
+;; muutos.sql-client/eq into JSONB binary data.
+(extend-protocol bin/Parameter
+  IPersistentCollection
+  (encode [this] (encode-jsonb this)))
+
+;; Teach Muutos to decode JSONB binary data.
+;;
+;; 3802 is the OID of the JSONB data type.
+;;
+;; Refer to e.g. https://github.com/postgres/postgres/blob/d3d0983169130a9b81e3fe48d5c2ca4931480956/src/include/catalog/pg_type.dat for data type OIDs.
+(defmethod bin/decode (int 3802) [_ ^ByteBuffer bb]
+  ;; Skip JSONB version byte.
+  (assert (= 1 (.get bb)) "Unsupported JSONB version")
+
+  (let [ba (byte-array (.remaining bb))]
+    (.get bb ba)
+    (with-open [reader (io/reader (ByteArrayInputStream. ba))]
+      (json/read reader :key-fn keyword))))
+
+(comment
+  ;; Test round-tripping.
+  (bin/decode 3802 (bin/encode {:a 1}))
+
+  ;; Alternatively, if you don't want to encode every IPersistentCollection as JSONB,
+  ;; you can extend via metadata[1].
+  ;;
+  ;; [1]: https://clojure.org/reference/protocols#_extend_via_metadata).
+  (bin/decode 3802
+    (bin/encode (with-meta {:a 1} {`bin/encode encode-jsonb})))
+  ,,,)
+
+(require '[muutos.sql-client :refer [connect eq]])
+
+(def pg
+  (connect
+    :oid-fn (fn [x]
+              ;; Teach Muutos to interpret Clojure collections as PostgreSQL
+              ;; data type OID 3802 (the OID of the JSONB data type).
+              ;;
+              ;; This is optional. It is only necessary if you want to avoid
+              ;; manually casting parameters in SQL statements (via ::jsonb).
+              ;;
+              ;; nil tells Muutos to fall back to its built-in implementation
+              ;; for determining the PostgreSQL data type OID of a Java data
+              ;; type.
+              (when (instance? IPersistentCollection x) 3802))))
+
+#_(.close pg)
+
+;; Ensure that JSONB parameters are encoded and JSONB results are decoded
+;; correctly.
+(eq pg ["SELECT $1::jsonb" {:a 1}])
+
+;; Since we used :oid-fn, we can omit the ::jsonb type cast and still have
+;; PostgreSQL interpret the Clojure map as JSONB.
+(eq pg ["SELECT $1 AS jsonb" {:a 1}])
+
+;; Create a publication and a replication slot to test JSONB decoding in
+;; logical replication messages.
+(eq pg ["CREATE PUBLICATION my_pub FOR ALL TABLES"])
+(eq pg ["SELECT pg_create_logical_replication_slot($1, $2)" "my_slot" "pgoutput"])
+
+(require '[muutos.subscriber :as subscriber])
+
+(require '[clojure.pprint :as pprint])
+
+;; Define a logical replication message handler function that pretty-prints
+;; every message.
+(defn handle
+  ([msg] (pprint/pprint msg))
+  ([msg ack]
+   (handle msg)
+   (ack)))
+
+;; Subscribe to our newly created publication.
+(def subscriber
+  (subscriber/connect "my_slot"
+    :publications #{"my_pub"}
+    :handler (bound-fn* handle)))
+
+#_(.close subscriber)
+
+;; Create a table with a JSONB attribute and make some changes to see what the
+;; resulting logical replication messages look like.
+(eq pg
+  ["DROP TABLE IF EXISTS t"]
+  ["CREATE TABLE t (doc jsonb NOT NULL)"]
+  ["INSERT INTO t VALUES ($1)" {:a 1}]
+  ["INSERT INTO t VALUES ($1)" ["b" 2 3.14]])
+
+;; Close subscriber.
+(.close subscriber)
+
+;; Drop replication slot and publication.
+(eq pg
+  ["SELECT pg_drop_replication_slot($1)" "my_slot"]
+  ["DROP PUBLICATION my_pub"])
+
+;; Close SQL client.
+(.close pg)

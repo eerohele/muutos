@@ -1,0 +1,2 @@
+*.repl linguist-language=Clojure
+*.repl diff

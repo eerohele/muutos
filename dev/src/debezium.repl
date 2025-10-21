@@ -1,0 +1,58 @@
+(import '(io.debezium.engine DebeziumEngine))
+
+(def props
+  (doto (java.util.Properties.)
+    (.setProperty "name" "my-connector")
+    (.setProperty "connector.class" "io.debezium.connector.postgresql.PostgresConnector")
+    (.setProperty "offset.storage", "org.apache.kafka.connect.storage.FileOffsetBackingStore");
+    (.setProperty "offset.storage.file.filename", "/tmp/offsets.dat");
+    (.setProperty "offset.flush.interval.ms", "60000");
+    (.setProperty "database.hostname" "localhost")
+    (.setProperty "database.port" "5432")
+    (.setProperty "database.dbname" "postgres")
+    (.setProperty "database.user" "postgres")
+    (.setProperty "database.password" "postgres")
+    (.setProperty "plugin.name" "pgoutput")
+    (.setProperty "database.server.name" "my-app-connector")
+    (.setProperty "topic.prefix" "test")
+    (.setProperty "batch.size" "1")
+    #_(.setProperty "database.whitelist" "postgres")
+    (.setProperty "table.whitelist" "public.t")))
+
+(import '(io.debezium.config Configuration))
+
+(def config (Configuration/from props))
+
+(import '(io.debezium.engine.format Json))
+
+(require '[clojure.repl.deps :as deps])
+
+(deps/add-libs
+  '{metosin/jsonista {:mvn/version "0.3.13"}
+    io.debezium/debezium-api {:mvn/version "3.0.7.Final"}
+    io.debezium/debezium-embedded {:mvn/version "3.0.7.Final"}
+    io.debezium/debezium-connector-postgres {:mvn/version "3.0.7.Final"}
+    ch.qos.logback/logback-classic {:mvn/version "1.5.16"}})
+
+(require '[jsonista.core :as json])
+
+(defn cb [x]
+  (throw (ex-info "Boom!" {:a 1}))
+  (tap> (json/read-value (.value x))))
+
+(def executor (java.util.concurrent.Executors/newSingleThreadExecutor))
+(def engine (.. (DebeziumEngine/create Json) (using (.asProperties config)) (notifying cb) (build)))
+
+(.execute executor engine)
+
+(.shutdownNow executor)
+(.close engine)
+
+(require '[muutos.client :refer [connect eq]])
+
+(def pg (connect))
+#_(.close pg)
+
+(eq pg "CREATE TABLE IF NOT EXISTS t (a SERIAL, id UUID)")
+(eq pg "INSERT INTO t (id) VALUES ($1) RETURNING *" [(random-uuid)])
+(eq pg "SELECT * FROM t")

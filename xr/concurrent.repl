@@ -1,0 +1,13 @@
+(require '[muutos.sql-client :refer [connect eq]])
+(require '[muutos.test.concurrency :refer [concurrently]])
+
+(with-open [pg (connect)]
+  (concurrently {:threads 1000}
+    (let [uuid (random-uuid)]
+      (assert (= [{"uuid" uuid}] (eq pg ["SELECT $1 AS uuid" uuid]))))))
+
+;; TODO:
+;;
+;; Implement a test case where running a query randomly (with seed) throws
+;; java.lang.Error and check that every successful query gets the correct
+;; response.

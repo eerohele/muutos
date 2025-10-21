@@ -1,0 +1,348 @@
+;; env PGPASSWORD=postgres pgbench --initialize --host=localhost --port=5432 --username=postgres --dbname=postgres
+;; env PGPASSWORD=postgres pg_dump -h localhost -p 5432 -U postgres postgres | env PGPASSWORD=postgres psql -h localhost -p 5433 -U postgres postgres
+;; env PGPASSWORD=postgres pgbench --client=2 --jobs=2 --time=5 --host=localhost --port=5432 --username=postgres --dbname=postgres
+
+(set! *warn-on-reflection* true)
+
+(require '[cognitect.transcriptor :as xr])
+
+(require '[muutos.test.container :as container])
+(require '[muutos.test.server :refer [port]])
+
+(def srv-src
+  (->
+    (assoc container/default-opts :command ["postgres"
+                                            "-c" "wal_level=logical"
+                                            "-c" "wal_sender_timeout=120s"
+                                            "-c" "max_wal_senders=4"
+                                            "-c" "max_replication_slots=1"])
+    (container/create)
+    (container/start)))
+
+(xr/on-exit #(.close srv-src))
+
+(def srv-dst
+  (->
+    (assoc container/default-opts :command ["postgres"
+                                            "-c" "wal_level=logical"
+                                            "-c" "max_replication_slots=1"])
+    (container/create)
+    (container/start)))
+
+(xr/on-exit #(.close srv-dst))
+
+(require '[clojure.java.process :as process])
+
+;; Initialize source database.
+(process/exec {:env {"PGPASSWORD" "postgres"}}
+  "pgbench"
+  "--initialize"
+  "--host=localhost"
+  (format "--port=%d" (port srv-src))
+  "--username=postgres"
+  "postgres")
+
+;; Initialize target database (5433).
+(process/exec {:env {"PGPASSWORD" "postgres"}}
+  "pgbench"
+  "--initialize"
+  "--host=localhost"
+  (format "--port=%d" (port srv-dst))
+  "--username=postgres"
+  "postgres")
+
+(import (java.lang AutoCloseable))
+(require '[muutos.sql-client :refer [connect eq create-slot sq]])
+
+;; Open a connection to the source database.
+(def pg-src (connect :port (port srv-src)))
+(xr/on-exit #(AutoCloseable/.close pg-src))
+(def pg-src-rpl (connect :port (port srv-src) :replication :database))
+(xr/on-exit #(AutoCloseable/.close pg-src-rpl))
+(meta pg-src)
+
+;; Open a connection to the destination database.
+(def pg-dst (connect :port (port srv-dst)))
+(xr/on-exit #(AutoCloseable/.close pg-dst))
+(def pg-dst-rpl (connect :port (port srv-dst) :replication :database))
+(xr/on-exit #(AutoCloseable/.close pg-dst-rpl))
+(meta pg-dst)
+
+;; Check database connections.
+(eq pg-src ["SELECT 1 AS a"])
+(eq pg-dst ["SELECT 2 AS b"])
+
+(eq pg-src ["CREATE TABLE sentinel (id uuid)"])
+(eq pg-dst ["CREATE TABLE sentinel (id uuid)"])
+
+;; Create a publication in the source database.
+(eq pg-src ["CREATE PUBLICATION p_src
+             FOR TABLE pgbench_accounts, pgbench_branches, pgbench_history, pgbench_tellers, sentinel"])
+
+(xr/on-exit #(eq pg-src ["DROP PUBLICATION p_src"]))
+
+(eq pg-dst ["CREATE PUBLICATION p_dst FOR TABLE sentinel"])
+(xr/on-exit #(eq pg-dst ["DROP PUBLICATION p_dst"]))
+
+;; Create a logical replication slot in the source database.
+(create-slot pg-src "pgbench")
+(xr/on-exit #(sq pg-src-rpl "DROP_REPLICATION_SLOT pgbench WAIT"))
+
+(create-slot pg-dst "pgbench")
+(xr/on-exit #(sq pg-dst-rpl "DROP_REPLICATION_SLOT pgbench WAIT"))
+
+(require '[honey.sql :as sql])
+
+(defn q
+  "Given a SQL client and a coll of HoneySQL query maps, execute each
+  statement on the target database."
+  [pg qmaps]
+  (when (seq qmaps)
+    (let [statements (mapv (fn [qmap] (sql/format qmap {:numbered true})) qmaps)]
+      (apply (partial eq pg) statements))))
+
+(comment
+  (q pg-src [{:select [[1 :a]]}])
+  (q pg-dst [{:select [[2 :b]]} {:select [[3 :c]]}])
+  ,,,)
+
+(defmulti statement
+  "Given a Muutos logical replication message, return a HoneySQL query map that
+  describes the SQL statement that corresponds with the logical replication
+  message.
+
+  For example, a logical replication message of :type :insert returns an
+  {:insert-into ... :values} HoneySQL query map."
+  :type)
+
+(defmethod statement :default [_])
+
+(defmethod statement :truncate [{:keys [targets parameters]}]
+  {:truncate (cond-> [(mapv (fn [{:keys [schema table]}] (str schema \. table)) targets)]
+               (seq parameters) (into parameters))})
+
+(comment
+  (statement {:type :truncate
+              :targets [{:schema "public" :table "foo"}
+                        {:schema "public" :table "bar"}]
+              :parameters #{:restart-identity}})
+
+  (statement {:type :truncate
+              :parameters #{:default}
+              :targets [{:schema "public" :table "pgbench_history"}]})
+  )
+
+(defmethod statement :insert [{:keys [schema table new-row]}]
+  {:insert-into (str schema \. table) :values [new-row]})
+
+(comment
+  (statement {:type :insert
+              :oid 16389
+              :new-row
+              {"tid" 8
+               "bid" 1
+               "aid" 26314
+               "delta" 4451
+               "mtime" #time/date-time "2025-03-13T07:34:40.024437"
+               "filler" nil}
+              :schema "public"
+              :table "pgbench_history"})
+
+  (statement {:type :update
+              :oid 16393
+              :keys ["bid"]
+              :new-row {"bid" 1 "bbalance" -240622 "filler" nil}
+              :schema "public"
+              :table "pgbench_branches"})
+  ,,,)
+
+(defn where-keys
+  "Given a coll of table key names and a database row (a map), return a HoneySQL
+  :where clause that matches on all keys."
+  [keys row]
+  (into [:and]
+    (map (fn [k] [:= (keyword k) (row k)]))
+    keys))
+
+(comment
+  (where-keys ["bid"] {"tid" 1 "bid" -719604 "aid" nil})
+  (where-keys ["bid" "tid"] {"tid" 1 "bid" -719604 "aid" nil})
+  ,,,)
+
+(defmethod statement :update [{:keys [table new-row keys]}]
+  {:update (keyword table)
+   :set new-row
+   :where (where-keys keys new-row)})
+
+(require '[clojure.core.async :as async])
+
+(defn try-take!
+  [chan timeout-ms]
+  (let [timeout-chan (async/timeout timeout-ms)
+        [val port] (async/alts!! [chan timeout-chan])]
+    (if (identical? port timeout-chan)
+      ::timeout
+      val)))
+
+(def in-chan (async/chan 64))
+(xr/on-exit #(async/close! in-chan))
+
+(defn batch-statements
+  [msg]
+  (update msg :batch (fn [batch] (into [] (keep statement) batch))))
+
+(def out-chan (async/chan 64 (map batch-statements)))
+(xr/on-exit #(async/close! out-chan))
+
+(def batcher-exit-chan (async/chan 1))
+(xr/on-exit #(async/>!! batcher-exit-chan ::exit))
+
+(defn make-batch-proc
+  [in-chan out-chan exit-chan]
+  (async/go-loop [batch []]
+    (when-let [[{:keys [msg ack-chan]} alt-chan] (async/alts!! [in-chan exit-chan])]
+      (cond
+        (= alt-chan exit-chan)
+        ::exit
+
+        (#{:begin :relation} (:type msg))
+        (recur batch)
+
+        (= :commit (:type msg))
+        (do
+          (async/>! out-chan {:batch batch :ack-chan ack-chan})
+          (recur []))
+
+        :else
+        (recur (conj batch msg))))))
+
+(def batch-consumer (make-batch-proc in-chan out-chan batcher-exit-chan))
+(xr/on-exit #(async/close! batch-consumer))
+
+(def db-proc-exit (async/chan 1))
+(xr/on-exit #(async/>!! db-proc-exit ::exit))
+
+(defn make-db-proc [in-chan exit-chan]
+  (async/io-thread
+    (loop []
+      (when-some [[{:keys [batch ack-chan]} alt-chan] (async/alts!! [in-chan exit-chan])]
+        (cond
+          (= alt-chan exit-chan)
+          ::exit
+
+          :else
+          (do
+            (q pg-dst batch)
+            (async/>!! ack-chan ::ack)
+            (recur)))))))
+
+(def db-proc (make-db-proc out-chan db-proc-exit))
+(xr/on-exit #(async/close! db-proc))
+
+(require '[muutos.subscriber :as subscriber])
+
+(def ack-chan (async/chan 1))
+(xr/on-exit #(async/close! ack-chan))
+
+(defn log
+  [system level event data]
+  (when-not (#{:trace :debug} level)
+    (locking *out*
+      (prn (cond-> {:system system :level level :event event} data (assoc :data data))))))
+
+(def sub-src
+  (subscriber/connect "pgbench"
+    :log (partial log :src)
+    :port (port srv-src)
+    :publications #{"p_src"}
+    :handler (fn
+               ([msg] (async/>!! in-chan {:msg msg}))
+               ([msg ack]
+                (async/>!! in-chan {:msg msg :ack-chan ack-chan})
+                (async/take! ack-chan (fn [_] (ack)))))))
+
+(xr/on-exit #(AutoCloseable/.close sub-src))
+
+(def chan (async/chan))
+
+(def sub-dst
+  (subscriber/connect "pgbench"
+    :log (partial log :dst)
+    :port (port srv-dst)
+    :publications #{"p_dst"}
+    :handler (fn
+               ([msg] (async/>!! chan msg))
+               ([msg ack]
+                (async/>!! chan msg)
+                (ack)))))
+
+(xr/on-exit #(AutoCloseable/.close sub-dst))
+
+(assert
+  (=
+    (set (eq pg-src ["SELECT * FROM pgbench_accounts"]))
+    (set (eq pg-dst ["SELECT * FROM pgbench_accounts"]))))
+
+(assert
+  (=
+    (set (eq pg-src ["SELECT * FROM pgbench_branches"]))
+    (set (eq pg-dst ["SELECT * FROM pgbench_branches"]))))
+
+(assert
+  (=
+    (set (eq pg-src ["SELECT * FROM pgbench_history"]))
+    (set (eq pg-dst ["SELECT * FROM pgbench_history"]))))
+
+(assert
+  (=
+    (set (eq pg-src ["SELECT * FROM pgbench_tellers"]))
+    (set (eq pg-dst ["SELECT * FROM pgbench_tellers"]))))
+
+(comment
+  (require '[clj-async-profiler.core :as profiler])
+  (profiler/start)
+  ,,,)
+
+(println
+  (process/exec {:env {"PGPASSWORD" "postgres"}}
+    "pgbench" "--client=10"
+    (format "--jobs=%d" (Runtime/.availableProcessors (Runtime/getRuntime)))
+    "--time=30"
+    "--host=localhost"
+    (format "--port=%d" (port srv-src))
+    "--username=postgres"
+    "postgres"))
+
+(comment (profiler/stop) ,,,)
+
+(def sentinel #uuid "41bdc99b-6178-43c6-b937-84ade675df8c")
+
+(eq pg-src
+  ["INSERT INTO sentinel (id) VALUES ($1)" sentinel])
+
+(try-take! chan 30000)
+
+(try-take! chan 1000)
+(try-take! chan 1000)
+(assert (= sentinel (get-in *1 [:new-row "id"])))
+(try-take! chan 1000)
+
+(assert
+  (=
+    (set (eq pg-src ["SELECT * FROM pgbench_accounts"]))
+    (set (eq pg-dst ["SELECT * FROM pgbench_accounts"]))))
+
+(assert
+  (=
+    (set (eq pg-src ["SELECT * FROM pgbench_branches"]))
+    (set (eq pg-dst ["SELECT * FROM pgbench_branches"]))))
+
+(assert
+  (=
+    (set (eq pg-src ["SELECT * FROM pgbench_history"]))
+    (set (eq pg-dst ["SELECT * FROM pgbench_history"]))))
+
+(assert
+  (=
+    (set (eq pg-src ["SELECT * FROM pgbench_tellers"]))
+    (set (eq pg-dst ["SELECT * FROM pgbench_tellers"]))))

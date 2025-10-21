@@ -1,0 +1,226 @@
+(set! *warn-on-reflection* true)
+
+(require '[cognitect.transcriptor :as xr])
+
+(import '(java.lang AutoCloseable))
+(import '(java.time Duration))
+
+(require '[matcher-combinators.standalone :refer [match]])
+
+(defn instant? [x]
+  (instance? java.time.Instant x))
+
+(defn string-array? [x]
+  (and (not (nil? x))
+       (.isArray (class x))
+       (= String (.getComponentType (class x)))))
+
+(defn matches? [v]
+  (= :match (:match/result v)))
+
+(require '[muutos.sql-client :refer [connect eq create-slot drop-slot]])
+
+(def pg (connect :key-fn (fn [_ attr-name] (keyword attr-name))))
+(xr/on-exit #(AutoCloseable/.close pg))
+(meta pg)
+
+(eq pg ["SELECT * FROM film LIMIT 1"])
+
+(eq pg ["CREATE PUBLICATION pagila FOR ALL TABLES"])
+(xr/on-exit #(eq pg ["DROP PUBLICATION pagila"]))
+(create-slot pg "pagila")
+(xr/on-exit #(drop-slot pg "pagila"))
+
+(def q-current-lsn
+  "SELECT confirmed_flush_lsn
+   FROM pg_catalog.pg_replication_slots
+   WHERE slot_name = $1")
+
+(defn server-lsn [pg]
+  (-> (eq pg [q-current-lsn "pagila"]) first :confirmed_flush_lsn :byte-offset))
+
+(server-lsn pg)
+
+(require '[muutos.subscriber :as subscriber])
+
+(require '[clojure.core.async :as async])
+
+(def chan
+  (async/chan 8
+    (remove (comp #{:begin :relation :type :commit} :type))))
+
+(xr/on-exit #(async/close! chan))
+
+(def ack-chan
+  (async/chan 1))
+
+(xr/on-exit #(async/close! ack-chan))
+
+(def ack-interval (Duration/ofSeconds 1))
+
+(def subscriber
+  (subscriber/connect "pagila"
+    :publications #{"pagila"}
+    :ack-interval ack-interval
+    :handler (fn handle
+               ([msg] (async/>!! chan msg))
+               ([msg ack]
+                (handle msg)
+                (async/go
+                  (when (identical? ::ack (async/<! ack-chan))
+                    (ack)))))))
+
+(xr/on-exit #(AutoCloseable/.close subscriber))
+
+(def q-insert-address
+  "INSERT INTO address (address, address2, district, city_id, postal_code, phone)
+   VALUES ($1, $2, $3, (SELECT city_id FROM city WHERE city = $4 LIMIT 1), $5, $6)
+   RETURNING *")
+
+;; address
+(eq pg [q-insert-address
+        "742 Evergreen Terrace"
+        "Apt 3B"
+        "Southern"
+        "Cape Coral"
+        "33904"
+        "941555987"])
+
+(match
+  [{:address_id int?
+    :address "742 Evergreen Terrace"
+    :address2 "Apt 3B"
+    :district "Southern"
+    :city_id int?
+    :postal_code "33904"
+    :phone "941555987"
+    :last_update instant?}]
+  *1)
+
+(xr/check! matches?)
+
+(async/<!! chan)
+
+(match
+  {:type :insert
+   :schema "public"
+   :table "address"
+   :new-row
+   {"address_id" int?
+    "address" "742 Evergreen Terrace"
+    "address2" "Apt 3B"
+    "district" "Southern"
+    "city_id" int?
+    "postal_code" "33904"
+    "phone" "941555987"
+    "last_update" instant?}}
+  *1)
+
+(xr/check! matches?)
+
+(server-lsn pg)
+(async/>!! ack-chan ::ack)
+(Thread/sleep (Duration/.multipliedBy ack-interval 2))
+(assert (> (server-lsn pg) *3))
+
+(def q-insert-film
+  "INSERT INTO film (title, description, release_year, language_id, original_language_id, rental_duration, rental_rate, length, replacement_cost, rating, special_features)
+   VALUES ($1, $2, $3,
+           (SELECT language_id FROM language WHERE name = $4 LIMIT 1),
+           (SELECT language_id FROM language WHERE name = $5 LIMIT 1),
+           $6, $7, $8, $9, $10::mpaa_rating, $11)
+   RETURNING *")
+
+;; film
+(eq pg [q-insert-film
+        "The Quantum Paradox"
+        "A brilliant physicist discovers a way to manipulate time, but faces moral dilemmas when his invention falls into the wrong hands."
+        2023
+        "English"
+        "Japanese"
+        5
+        4.99
+        128
+        24.99
+        "PG-13"
+        (into-array String ["Behind the Scenes" "Commentaries" "Deleted Scenes"])])
+
+(match
+  [{:description
+    "A brilliant physicist discovers a way to manipulate time, but faces moral dilemmas when his invention falls into the wrong hands."
+    :replacement_cost 24.99M
+    :special_features string-array?
+    :original_language_id 3
+    :fulltext
+    #muutos.type.Document{:lexemes [#muutos.type.Lexeme{:text "brilliant" :entries [{:position 5 :weight \D}]}
+                                    #muutos.type.Lexeme{:text "dilemma" :entries [{:position 16 :weight \D}]}
+                                    #muutos.type.Lexeme{:text "discov" :entries [{:position 7 :weight \D}]}
+                                    #muutos.type.Lexeme{:text "face" :entries [{:position 14 :weight \D}]}
+                                    #muutos.type.Lexeme{:text "fall" :entries [{:position 20 :weight \D}]}
+                                    #muutos.type.Lexeme{:text "hand" :entries [{:position 24 :weight \D}]}
+                                    #muutos.type.Lexeme{:text "invent" :entries [{:position 19 :weight \D}]}
+                                    #muutos.type.Lexeme{:text "manipul" :entries [{:position 11 :weight \D}]}
+                                    #muutos.type.Lexeme{:text "moral" :entries [{:position 15 :weight \D}]}
+                                    #muutos.type.Lexeme{:text "paradox" :entries [{:position 3 :weight \D}]}
+                                    #muutos.type.Lexeme{:text "physicist" :entries [{:position 6 :weight \D}]}
+                                    #muutos.type.Lexeme{:text "quantum" :entries [{:position 2 :weight \D}]}
+                                    #muutos.type.Lexeme{:text "time" :entries [{:position 12 :weight \D}]}
+                                    #muutos.type.Lexeme{:text "way" :entries [{:position 9 :weight \D}]}
+                                    #muutos.type.Lexeme{:text "wrong" :entries [{:position 23 :weight \D}]}]}
+    :language_id int?
+    :rental_rate 4.99M
+    :title "The Quantum Paradox"
+    :rental_duration 5
+    :release_year 2023
+    :film_id int?
+    :last_update instant?
+    :length 128
+    :rating "PG-13"}]
+  *1)
+
+(xr/check! matches?)
+
+(async/<!! chan)
+
+(match
+  {:type :insert
+   :schema "public"
+   :table "film"
+   :new-row
+   {"rental_rate" 4.99M
+    "original_language_id" int?
+    "replacement_cost" 24.99M
+    "fulltext"
+    #muutos.type.Document {:lexemes [#muutos.type.Lexeme{:text "brilliant" :entries [{:position 5 :weight \D}]}
+                                     #muutos.type.Lexeme{:text "dilemma" :entries [{:position 16 :weight \D}]}
+                                     #muutos.type.Lexeme{:text "discov" :entries [{:position 7 :weight \D}]}
+                                     #muutos.type.Lexeme{:text "face" :entries [{:position 14 :weight \D}]}
+                                     #muutos.type.Lexeme{:text "fall" :entries [{:position 20 :weight \D}]}
+                                     #muutos.type.Lexeme{:text "hand" :entries [{:position 24 :weight \D}]}
+                                     #muutos.type.Lexeme{:text "invent" :entries [{:position 19 :weight \D}]}
+                                     #muutos.type.Lexeme{:text "manipul" :entries [{:position 11 :weight \D}]}
+                                     #muutos.type.Lexeme{:text "moral" :entries [{:position 15 :weight \D}]}
+                                     #muutos.type.Lexeme{:text "paradox" :entries [{:position 3 :weight \D}]}
+                                     #muutos.type.Lexeme{:text "physicist" :entries [{:position 6 :weight \D}]}
+                                     #muutos.type.Lexeme{:text "quantum" :entries [{:position 2 :weight \D}]}
+                                     #muutos.type.Lexeme{:text "time" :entries [{:position 12 :weight \D}]}
+                                     #muutos.type.Lexeme{:text "way" :entries [{:position 9 :weight \D}]}
+                                     #muutos.type.Lexeme{:text "wrong" :entries [{:position 23 :weight \D}]}]}
+    "release_year" 2023
+    "length" 128
+    "film_id" int?
+    "special_features" string-array?
+    "title" "The Quantum Paradox"
+    "language_id" 1
+    "rental_duration" 5
+    "last_update" instant?
+    "rating" "PG-13"
+    "description" "A brilliant physicist discovers a way to manipulate time, but faces moral dilemmas when his invention falls into the wrong hands."}}
+  *1)
+
+(xr/check! matches?)
+
+(server-lsn pg)
+(async/>!! ack-chan ::ack)
+(Thread/sleep (Duration/.multipliedBy ack-interval 2))
+(assert (> (server-lsn pg) *3))

@@ -1,0 +1,10 @@
+{:linters
+ {:warn-on-reflection
+  {:level :error
+   :warn-only-on-interop true}
+
+  :unresolved-symbol {:exclude [(clojure.test/is [match?])]}}
+
+ :skip-comments true
+
+ :lint-as {clojure.test.check.clojure-test/defspec clojure.test/deftest}}

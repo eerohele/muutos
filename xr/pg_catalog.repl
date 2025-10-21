@@ -1,0 +1,49 @@
+;; Check that the Muutos SQL client can query all pg_catalog tables that don't
+;; have an acl_item column.
+;;
+;; (The acl_item data type doesn't have a binary representation and therefore
+;; can't be queried using the extended query protocol in binary mode.)
+(require '[cognitect.transcriptor :as xr])
+(require '[clojure.spec.alpha :as spec])
+(require '[muutos.sql-client :as pg :refer [eq]])
+
+(def pg (pg/connect :key-fn (fn [_ attr-name] (keyword attr-name))))
+(xr/on-exit #(.close pg))
+
+;; This throws "no binary output function available for type aclitem"
+#_(eq pg ["SELECT * FROM pg_catalog.pg_statistic"])
+
+(def q
+  "SELECT c.relname
+   FROM pg_catalog.pg_class c
+   JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+   WHERE n.nspname = $1
+     AND c.relkind = $2
+     AND NOT c.relname = ANY($3)
+   ORDER BY c.relname")
+
+(def tables-with-acl-items
+  #{"pg_attribute"
+    "pg_class"
+    "pg_database"
+    "pg_init_privs"
+    "pg_namespace"
+    "pg_proc"
+    "pg_statistic"})
+
+(def tables
+  (into []
+    (map :relname)
+    (eq pg [q "pg_catalog" \r (into-array String tables-with-acl-items)])))
+
+(spec/def ::data
+  (spec/coll-of (spec/map-of keyword? any?) :min-count 57 :kind vector?))
+
+(set! *print-length* 4)
+(set! *print-level* 2)
+
+(into []
+  (mapcat(fn [table] (eq pg [(format "SELECT * FROM %s" table)])))
+  tables)
+
+(xr/check! ::data)

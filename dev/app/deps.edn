@@ -1,0 +1,10 @@
+{:deps {me.flowthing/muutos {:local/root "../.."}
+        me.flowthing/pp {:mvn/version "2024-11-13.77"}
+        com.brunobonacci/mulog {:mvn/version "0.9.0"}
+        com.github.seancorfield/honeysql {:git/url "https://github.com/seancorfield/honeysql.git" :git/sha "df16975458ae1d576b61e23cb176ff1d45d864bb"}
+        org.clojure/core.async {:mvn/version "1.9.829-alpha2"}}
+
+ :aliases
+ {:build
+  {:deps {io.github.clojure/tools.build {:mvn/version "0.10.10"}}
+   :ns-default build}}}
