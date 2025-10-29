@@ -291,7 +291,7 @@ Subscribe to a PostgreSQL logical replication stream.
    start-lsn 0,
    log (constantly nil),
    messages? true,
-   ack-interval (Duration/ofSeconds 3)}})
+   ack-interval (Duration/ofSeconds 10)}})
 ```
 Function.
 
@@ -362,7 +362,7 @@ Given the name of a logical replication slot (ident or string) and options,
     See the [`muutos.trust-manager`](#muutos.trust-manager) namespace for a set of pre-defined trust
     managers.
 
-  - `:ack-interval` (`java.time.Duration`, default: `(Duration/ofSeconds 3)`)
+  - `:ack-interval` (`java.time.Duration`, default: `(Duration/ofSeconds 10)`)
 
     The interval at which to send acknowledgement messages to the PostgreSQL
     server.
