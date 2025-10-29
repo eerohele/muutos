@@ -9,7 +9,7 @@ You tell Muutos which changes you're interested in and give it a callback
 function. When such a change occurs, Muutos calls the callback function you
 give it with a Clojure map that describes the change.
 
-Muutos uses the built-in [`pgoutput`](https://www.postgresql.org/docs/current/protocol-logical-replication.html#PROTOCOL-LOGICAL-REPLICATION) logical decoding output plugin, and requires no additional dependencies on the PostgreSQL server.
+Muutos uses the built-in [`pgoutput`](https://www.postgresql.org/docs/current/protocol-logical-replication.html#PROTOCOL-LOGICAL-REPLICATION) logical decoding output plugin and requires no additional dependencies on the PostgreSQL server.
 
 ## Rationale
 

@@ -6,6 +6,8 @@ Muutos is a [zero-dependency](https://0dependencies.dev/) [Clojure](https://cloj
 
 You give Muutos a callback function. Muutos then subscribes to a [PostgreSQL logical decoding stream](https://www.postgresql.org/docs/current/logicaldecoding.html) and calls the callback function on every logical replication message PostgreSQL sends it.
 
+Muutos uses the built-in [`pgoutput`](https://www.postgresql.org/docs/current/protocol-logical-replication.html#PROTOCOL-LOGICAL-REPLICATION) logical decoding output plugin and requires no additional dependencies on the PostgreSQL server.
+
 **NOTE**: Muutos is in **alpha**. I'll avoid making breaking changes to the API to the best of my ability, but they are possible.
 
 ## Example
@@ -91,7 +93,7 @@ You give Muutos a callback function. Muutos then subscribes to a [PostgreSQL log
 ;; For more on using logical replication messages for change data capture, see:
 ;;
 ;; https://www.infoq.com/articles/wonders-of-postgres-logical-decoding-messages/
-(sql/emit-message pg "hello" (.getBytes "world" "UTF-8"))
+(sql/emit-message pg "my-prefix" (.getBytes "Hello, world!" "UTF-8"))
 
 ;; Yields:
 {:type :begin
@@ -101,9 +103,9 @@ You give Muutos a callback function. Muutos then subscribes to a [PostgreSQL log
 {:type :message
  :flags :transactional
  :lsn 37958776
- :prefix "hello"
- ;; The UTF-8 bytes for the string "world".
- :content #bytes "776F726C64"}
+ :prefix "my-prefix"
+ ;; The UTF-8 bytes for the string "Hello, world!".
+ :content #bytes "48656C6C6F2C20776F726C6421"}
 {:type :commit
  :commit-lsn 37958776
  :tx-end-lsn 37958824
