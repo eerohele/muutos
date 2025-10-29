@@ -124,8 +124,6 @@
 (of-bin 16 {:name "boolean" :array-oid 1000}
   (case (int8 bb) 1 true 0 false))
 
-(comment (meta #'decode-bool) ,,,)
-
 (of-bin 17 {:name "bytea" :array-oid 1001}
   (let [ba (byte-array (.remaining bb))]
     (.get (.slice bb) ba)
