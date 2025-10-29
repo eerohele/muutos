@@ -5,7 +5,7 @@
             [clojure.test.check.properties :as prop]
             [muutos.dev.encode :as encode]
             [muutos.impl.decode :as decode]
-            [muutos.specs.logical-replication-message :as lrm]))
+            [muutos.impl.specs.logical-replication-message :as lrm]))
 
 (defmulti comparable :type)
 

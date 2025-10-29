@@ -1,4 +1,4 @@
-(ns ^:no-doc muutos.specs.logical-replication-message
+(ns ^:no-doc muutos.impl.specs.logical-replication-message
   "Specs for PostgreSQL logical replication messages represented as Clojure
   data."
   (:require [clojure.set :as set]
