@@ -930,7 +930,7 @@ In this table, "B" stands for binary, and "T" stands for text.
 [^1]: See [Adding support for new data types](#adding-support-for-new-data-types) on how to teach Muutos to read and write `json`/`jsonb` data.
 [^2]: The fractional precision of the `money` type is [locale-dependent](https://www.postgresql.org/docs/current/datatype-money.html). Converting `money` to a floating-point presentation is up to the user.
 [^3]: The maximum unit of `java.time.Duration` is an hour and the minimum unit of a `java.time.Period` is a day, so intervals such as `INTERVAL '1 year 1 minute'` will lose fidelity in translation.
-[^4]: By default, in text mode, when PostgreSQL sends it a JSON string, Muutos hands it to you as is. See [encoding-and-decoding-json-data](#adding-decoders-and-encoders) on how to teach Muutos to read JSON data into Clojure data structures.
+[^4]: By default, in text mode, when PostgreSQL sends it a JSON string, Muutos hands it to you as is. See [Adding support for new data types](#adding-support-for-new-data-types) on how to teach Muutos to read JSON data into Clojure data structures.
 [^5]: Kleppmann, Martin. "Designing Data-Intensive Applications." O’Reilly Media, Inc. 2017, pp. 452–453.
 [^6]: Kleppmann, pp. 454–457.
 
