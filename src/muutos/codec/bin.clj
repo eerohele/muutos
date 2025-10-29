@@ -12,7 +12,7 @@
            (java.math RoundingMode)
            (java.net InetAddress Inet4Address Inet6Address)
            (java.nio ByteBuffer)
-           (java.nio.charset StandardCharsets)
+           (java.nio.charset Charset StandardCharsets)
            (java.time Duration LocalDate LocalDateTime LocalTime Instant OffsetTime Period ZoneOffset)
            (java.time.temporal ChronoUnit)
            (java.util UUID)
@@ -35,7 +35,7 @@
                             i
                             (recur (inc i))))))
         slice (.slice bb pos limit)]
-    (str (.decode StandardCharsets/UTF_8 slice))))
+    (str (Charset/.decode StandardCharsets/UTF_8 slice))))
 
 ;; ╔══════════╗
 ;; ║  DECODE  ║
