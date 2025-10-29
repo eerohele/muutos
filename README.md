@@ -2,9 +2,9 @@
 
 >/ˈmuːtos/ — **change** _(process of making or becoming different)_
 
-Muutos is a [zero-dependency](https://0dependencies.dev/) [PostgreSQL](https://www.postgresql.org/) logical decoding client library for [Clojure](https://clojure.org).
+Muutos is a [zero-dependency](https://0dependencies.dev/) [Clojure](https://clojure.org) library for reacting to changes in a [PostgreSQL](https://www.postgresql.org/) database.
 
-Muutos lets you react to changes in your PostgreSQL database. You give Muutos a callback function. Muutos then subscribes to a [PostgreSQL logical decoding stream](https://www.postgresql.org/docs/current/logicaldecoding.html) and calls the callback function on every logical replication message PostgreSQL sends it.
+You give Muutos a callback function. Muutos then subscribes to a [PostgreSQL logical decoding stream](https://www.postgresql.org/docs/current/logicaldecoding.html) and calls the callback function on every logical replication message PostgreSQL sends it.
 
 **NOTE**: Muutos is in **alpha**. I'll avoid making breaking changes to the API to the best of my ability, but they are possible.
 
