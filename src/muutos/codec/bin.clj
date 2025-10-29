@@ -145,7 +145,7 @@
 
 (of-bin 114 {:name "json" :array-oid 199}
   (let [ba (byte-array (.remaining bb))]
-    (.get bb ba)
+    (.get (.slice bb) ba)
     ba))
 
 (of-bin 194 {:name "pg_node_tree"} (charset/string bb))
@@ -336,7 +336,7 @@
   ;; Skip version byte
   (assert (= 1 (int8 bb)) "Unsupported JSONB version")
   (let [ba (byte-array (.remaining bb))]
-    (.get bb ba)
+    (.get (.slice bb) ba)
     ba))
 
 ;; Ranges
