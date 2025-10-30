@@ -1,4 +1,4 @@
-# Muutos [![0 dependencies!](https://0dependencies.dev/0dependencies.svg)](https://0dependencies.dev)
+# Muutos [![0 dependencies!](https://0dependencies.dev/0dependencies.svg)](https://0dependencies.dev) [![Clojars Project](https://img.shields.io/clojars/v/me.flowthing/muutos.svg)](https://clojars.org/me.flowthing/muutos)
 
 >/ˈmuːtos/ — **change** _(process of making or becoming different)_
 
