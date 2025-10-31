@@ -22,14 +22,16 @@ write succeeds. For example:
 - Update or invalidate a cache
 
 Publishing change data reliably is not a trivial task. Writing to two data stores consecutively, or _dual writing_, seems like the most obvious solution, but is exceedingly difficult to implement reliably[^5]. You cannot act on a
-change before or during a database transaction, because the transaction can
-fail. Neither can you act on a change _after_ your app has successfully committed the transaction because your
+change before or during a database transaction, because the transaction might be rolled back. Neither can you act on a change _after_ your app has successfully committed the transaction because your
 app may crash or quit [after the transaction succeeds but before the
 reaction occurs](https://brandur.org/job-drain).
 
-To capture change data reliably, there are two common solutions. One solution is to transact an outgoing message into a database table and poll it. This is known as the [transactional outbox pattern](https://docs.aws.amazon.com/prescriptive-guidance/latest/cloud-design-patterns/transactional-outbox.html). Another is an approach called "change data capture"[^6] (CDC). That means tapping into the [logical decoding stream](https://www.postgresql.org/docs/current/logicaldecoding-explanation.html#LOGICALDECODING-EXPLANATION-LOG-DEC) of the database. That is the approach Muutos uses.
+To capture change data reliably, there are two common solutions. One is to transact an outgoing message into a database table and poll it. This is known as the [transactional outbox pattern](https://docs.aws.amazon.comprescriptive-guidance/latest/cloud-design-patterns/transactional-outbox.html). Another is an approach called "change data capture"[^6] (CDC). That means tapping into the [logical decoding stream](https://www.postgresql.org/docs/current/logicaldecoding-explanation.html#LOGICALDECODING-EXPLANATION-LOG-DEC) of the database. That is the approach Muutos uses.
+
 
 Like all technologies, both options have their pros and cons.  For an extended discussion on change data capture and its benefits and drawbacks, see Chapter 11 of [_Designing Data-Intensive Applications_](https://dataintensive.net/) by Martin Kleppmann (2017).
+
+In addition to benefits related to reliability and ordering, change data capture decouples the handling of inbound writes (i.e. HTTP requests or messages that update or delete resources) from what happens when the state of the database changes. When handling, say, a HTTP request, if you dual write into the database and a message queue, the party making the request must wait for both writes to succeed. With change data capture, they only need to wait for the database write. As a result, your HTTP request handling code will be faster, less coupled, and more straightforward to test.
 
 Here is a list of some of the benefits and drawbacks of using change data capture vs. a transactional outbox, as well as comparisons between Muutos and other change data capture tools.
 
