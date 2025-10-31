@@ -8,7 +8,8 @@ You give Muutos a callback function. Muutos then subscribes to a [PostgreSQL log
 
 Muutos uses the built-in [`pgoutput`](https://www.postgresql.org/docs/current/protocol-logical-replication.html#PROTOCOL-LOGICAL-REPLICATION) logical decoding output plugin and requires no additional dependencies on the PostgreSQL server.
 
-**NOTE**: Muutos is in **alpha**. I'll avoid making breaking changes to the API to the best of my ability, but they are possible.
+> [!CAUTION]
+> Muutos is in **alpha**. I'll avoid making breaking changes to the API to the best of my ability, but they are possible.
 
 ## Example
 
