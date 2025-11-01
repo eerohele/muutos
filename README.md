@@ -74,6 +74,7 @@ Muutos uses the built-in [`pgoutput`](https://www.postgresql.org/docs/current/pr
  [{:flags #{:key} :name "id" :data-type-oid 23 :type-modifier -1}
   {:flags #{} :name "s" :data-type-oid 25 :type-modifier -1}]}
 {:type :insert
+ ;; The :new-row key contains the data for the row we inserted above.
  :new-row {"id" 1 "s" "a"}
  :schema "public"
  :table "t"}
