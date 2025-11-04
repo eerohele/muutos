@@ -169,6 +169,9 @@ writing more detailed information about every changes into its [write-ahead log]
 and storing those changes until we tell PostgreSQL that it's free to truncate
 the log.
 
+> [!CAUTION]
+> Drop the replication slot if you stop consuming it. Otherwise, PostgreSQL will accumulate WAL entries indefinitely, eating up disk space.
+
 For more information on creating replication slots, see [Replication Slots](https://www.postgresql.org/docs/current/warm-standby.html#STREAMING-REPLICATION-SLOTS)
 in the PostgreSQL documentation.
 
