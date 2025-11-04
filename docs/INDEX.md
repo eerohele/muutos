@@ -26,8 +26,9 @@ change before or during a database transaction, because the transaction might be
 app may crash or quit [after the transaction succeeds but before the
 reaction occurs](https://brandur.org/job-drain).
 
-To capture change data reliably, there are two common solutions. One is to transact an outgoing message into a database table and poll it. This is known as the [transactional outbox pattern](https://docs.aws.amazon.comprescriptive-guidance/latest/cloud-design-patterns/transactional-outbox.html). Another is an approach called "change data capture"[^6] (CDC). That means tapping into the [logical decoding stream](https://www.postgresql.org/docs/current/logicaldecoding-explanation.html#LOGICALDECODING-EXPLANATION-LOG-DEC) of the database. That is the approach Muutos uses.
+To capture change data reliably, there are two common solutions. One is to transact an outgoing message into a database table and poll it. This is known as the [transactional outbox pattern](https://docs.aws.amazon.comprescriptive-guidance/latest/cloud-design-patterns/transactional-outbox.html). Another is an approach called "change data capture"[^6] (CDC). That means tapping into the [write-ahead log](https://www.postgresql.org/docs/current/logicaldecoding-explanation.html#LOGICALDECODING-EXPLANATION-LOG-DEC) (WAL) of the database. That is the approach Muutos uses.
 
+One of the main benefits of using logical replication is reliable delivery. If a logical replication stream has no consumers, PostgreSQL will keep accumulating data until a consumer appears. PostgreSQL will only remove entries from its WAL once a consumer has acknowledged them as having been successfully processed.[^7]
 
 Like all technologies, both options have their pros and cons.  For an extended discussion on change data capture and its benefits and drawbacks, see Chapter 11 of [_Designing Data-Intensive Applications_](https://dataintensive.net/) by Martin Kleppmann (2017).
 
@@ -938,6 +939,7 @@ In this table, "B" stands for binary, and "T" stands for text.
 [^4]: By default, in text mode, when PostgreSQL sends it a JSON string, Muutos hands it to you as is. See [Adding support for new data types](#adding-support-for-new-data-types) on how to teach Muutos to read JSON data into Clojure data structures.
 [^5]: Kleppmann, Martin. "Designing Data-Intensive Applications." O’Reilly Media, Inc. 2017, pp. 452–453.
 [^6]: Kleppmann, pp. 454–457.
+[^7]: By contrast, [`LISTEN`](https://www.postgresql.org/docs/current/sql-listen.html)/[`NOTIFY`](https://www.postgresql.org/docs/current/sql-notify.html) is not reliable: if you `NOTIFY` when no one is `LISTEN`ing, the notification is lost.
 
 [pg.money]: https://www.postgresql.org/docs/current/datatype-money.html
 [clojure.lang.IPersistentMap]: https://clojure.org/reference/data_structures#Maps
