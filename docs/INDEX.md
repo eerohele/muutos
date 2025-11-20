@@ -26,7 +26,7 @@ change before or during a database transaction, because the transaction might be
 app may crash or quit [after the transaction succeeds but before the
 reaction occurs](https://brandur.org/job-drain).
 
-To capture change data reliably, there are two common solutions. One is to transact an outgoing message into a database table and poll it. This is known as the [transactional outbox pattern](https://docs.aws.amazon.comprescriptive-guidance/latest/cloud-design-patterns/transactional-outbox.html). Another is an approach called "change data capture"[^6] (CDC). That means tapping into the [write-ahead log](https://www.postgresql.org/docs/current/logicaldecoding-explanation.html#LOGICALDECODING-EXPLANATION-LOG-DEC) (WAL) of the database. That is the approach Muutos uses.
+To capture change data reliably, there are two common solutions. One is to transact an outgoing message into a database table and poll it. This is known as the [transactional outbox pattern](https://docs.aws.amazon.com/prescriptive-guidance/latest/cloud-design-patterns/transactional-outbox.html). Another is an approach called "change data capture"[^6] (CDC). That means tapping into the [write-ahead log](https://www.postgresql.org/docs/current/logicaldecoding-explanation.html#LOGICALDECODING-EXPLANATION-LOG-DEC) (WAL) of the database. That is the approach Muutos uses.
 
 One of the main benefits of using logical replication is reliable delivery. If a logical replication stream has no consumers, PostgreSQL will keep accumulating data until a consumer appears. PostgreSQL will only remove entries from its WAL once a consumer has acknowledged them as having been successfully processed.[^7]
 
