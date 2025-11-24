@@ -91,11 +91,7 @@
         (let [expected-server-signature (state :expected-server-signature)
               server-signature (state :server-signature)]
           (when-not (= expected-server-signature server-signature)
-            (anomaly!
-              "Server signature didn't match the expected value"
-              ::anomalies/forbidden
-              {:expected expected-server-signature
-               :actual server-signature}))
+            (anomaly! "Server signature didn't match the expected value" ::anomalies/forbidden))
 
           (recur state))
 
