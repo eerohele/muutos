@@ -44,6 +44,7 @@ Here is a list of some of the benefits and drawbacks of using change data captur
 - No need to design and implement a transactional outbox table (including pruning it). If you have multiple apps  (e.g. microservices) that need to react to changes in the database, you don't need to implement a transactional outbox in each one.
 - You can use [`pg_logical_emit_message`](https://www.postgresql.org/docs/current/functions-admin.html#FUNCTIONS-REPLICATION) to [emit arbitrary binary payloads](https://www.infoq.com/articles/wonders-of-postgres-logical-decoding-messages/) from the PostgreSQL server, transactionally or not. This allows you to decouple the messages you send from the structure of your database without having to implement an outbox table.
 - With logical decoding, you can use [pg_cron](https://github.com/citusdata/pg_cron) together with [`pg_logical_emit_message`](https://www.postgresql.org/docs/current/functions-admin.html#FUNCTIONS-REPLICATION) as a lightweight task scheduler.
+- You can use [log sequence numbers](https://www.postgresql.org/docs/current/datatype-pg-lsn.html) as [reliable idempotency keys](https://www.morling.dev/blog/on-idempotency-keys/#_deriving_idempotency_keys_from_the_transaction_log)
 
 ### Drawbacks of using change data capture instead of polling
 
