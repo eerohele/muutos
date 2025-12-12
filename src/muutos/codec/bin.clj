@@ -58,7 +58,7 @@
 ;; inflicting on myself. Users don't need to know that this macro exists --
 ;; they can just extend the "decode" multimethod.
 (defmacro ^:private of-bin
-  "Given the name of a Postgres data type (string or ident), a defn attribute
+  "Given the name of a PostgreSQL data type (string or ident), a defn attribute
   map, and a body, define a function and a multimethod that decodes the given
   data type into a Java type."
   [oid attrs & body]
