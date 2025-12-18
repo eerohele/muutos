@@ -648,7 +648,7 @@
 
 (defn ^:private size
   "Given the PostgreSQL data type OID of a data type that maps to a Java
-  primitive array, return the number of bytes it occupies."
+  primitive array, return the number of bytes the data type occupies."
   ^long [oid]
   (condp = oid
     16 1 #_bool
