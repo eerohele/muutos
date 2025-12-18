@@ -25,7 +25,7 @@
   number (long), return its hexadecimal string representation."
   [^long n]
   (let [byte-offset (bit-shift-right n 32)
-        segment (int n)]
+        segment (long n)]
     (format "%X/%X" byte-offset segment)))
 
 (defn ^:private hex-string->lsn
@@ -47,7 +47,7 @@
   (require '[clojure.test.check.properties :as prop])
 
   (tc/quick-check 1000000
-    (prop/for-all [n (gen/large-integer* {:min 0 :max Integer/MAX_VALUE})]
+    (prop/for-all [n (gen/large-integer* {:min 0 :max Long/MAX_VALUE})]
       (= n (-> n lsn->hex-string hex-string->lsn))))
   ,,,)
 
