@@ -36,7 +36,7 @@ jobs:
           restore-keys: deps-
 
       - name: Run tests
-        run: clojure -J-Dclojure.main.report=stderr -X:dev kaocha.runner/exec-fn :reporter kaocha.report/documentation
+        run: clojure -J-Dapi.version=1.44 -J-Dclojure.main.report=stderr -X:dev kaocha.runner/exec-fn :reporter kaocha.report/documentation
 
   transcribe:
     runs-on: ubuntu-24.04
