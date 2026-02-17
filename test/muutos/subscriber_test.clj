@@ -14,6 +14,7 @@
             [muutos.sql-client :refer [eq sq emit-message] :as sql-client]
             [muutos.subscriber :as subscriber]
             [muutos.test.concurrency :refer [concurrently]]
+            [muutos.test.container :as container]
             [muutos.test.server :as server :refer [host port]]
             [muutos.type])
   (:import (clojure.lang ExceptionInfo)
@@ -40,16 +41,11 @@
        ::result/weight 1})))
 
 (def container-opts
-  {:env-vars {"POSTGRES_PASSWORD" "postgres"
-              "POSTGRES_DB" "test"}
-   :wait-for {:strategy :log :message "accept connections"}
-   :exposed-ports [5432]
-   :image-name "postgres:17"
-   :command ["postgres"
-             "-c" "wal_level=logical"
-             "-c" "wal_sender_timeout=10s"
-             "-c" "max_wal_senders=4"
-             "-c" "max_replication_slots=1"]})
+  (assoc container/default-opts :command ["postgres"
+                                          "-c" "wal_level=logical"
+                                          "-c" "wal_sender_timeout=10s"
+                                          "-c" "max_wal_senders=4"
+                                          "-c" "max_replication_slots=1"]))
 
 (defonce server
   (delay (server/start container-opts)))
