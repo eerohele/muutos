@@ -12,7 +12,7 @@ jobs:
 
     steps:
       - name: Clone repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Install JDK
         uses: actions/setup-java@v5
@@ -21,12 +21,12 @@ jobs:
           java-version: "25"
 
       - name: Install Clojure CLI
-        uses: DeLaGuardo/setup-clojure@13.4
+        uses: DeLaGuardo/setup-clojure@13.5.2
         with:
-          cli: 1.12.3.1577
+          cli: 1.12.4.1602
 
       - name: Cache dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.m2/repository
@@ -43,7 +43,7 @@ jobs:
 
     steps:
       - name: Clone repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Install JDK
         uses: actions/setup-java@v5
@@ -52,12 +52,12 @@ jobs:
           java-version: "25"
 
       - name: Install Clojure CLI
-        uses: DeLaGuardo/setup-clojure@13.4
+        uses: DeLaGuardo/setup-clojure@13.5.2
         with:
-          cli: 1.12.3.1577
+          cli: 1.12.4.1602
 
       - name: Cache dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.m2/repository
