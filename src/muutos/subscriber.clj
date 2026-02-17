@@ -166,7 +166,7 @@
     handler function executor (see `:executor`).
 
     The default implementation shuts down the executor and awaits for
-    its termination for 30 seconds.
+    its termination indefinitely.
 
     **Note**: If you shut down the executor immediately (using `.shutdownNow`),
     it is possible that the executor shuts down before the handler function can
