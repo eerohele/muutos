@@ -266,14 +266,15 @@
             ;; optimize, stay with longs until it's necessary to go BigInteger.
             ^BigInteger num (loop [i 0 num BigInteger/ZERO]
                               (if (= i len)
-                                (cond-> num (= 0x4000 sign) (.negate))
+                                (cond-> num (= 0x4000 sign) BigInteger/.negate)
                                 (let [base-10000-digit (int16 bb)
                                       digit (BigInteger/valueOf base-10000-digit)
                                       base (.pow ten-thousand (- len i 1))]
-                                  (recur (inc i) (.add num (.multiply base digit))))))]
-        (.. (BigDecimal. num)
-          (scaleByPowerOfTen exponent)
-          (setScale decimal-scale RoundingMode/DOWN))))))
+                                  (recur (inc i) (BigInteger/.add num (BigInteger/.multiply base digit))))))]
+        (->
+          (BigDecimal. num)
+          (BigDecimal/.scaleByPowerOfTen exponent)
+          (BigDecimal/.setScale decimal-scale RoundingMode/DOWN))))))
 
 (defn ^:private decode-column [^ByteBuffer bb]
   (let [oid (int32 bb)
