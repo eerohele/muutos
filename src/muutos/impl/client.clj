@@ -5,9 +5,9 @@
             [muutos.impl.anomaly :as anomaly :refer [anomaly!]]
             [muutos.impl.base64 :as base64]
             [muutos.impl.connection :as connection]
+            [muutos.impl.charset :as charset]
             [muutos.impl.crypto :as crypto]
-            [muutos.impl.sasl :as sasl]
-            [muutos.impl.charset :as charset])
+            [muutos.impl.sasl :as sasl])
   (:import (java.io ByteArrayOutputStream)))
 
 (set! *warn-on-reflection* true)
