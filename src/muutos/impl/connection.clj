@@ -58,7 +58,7 @@
                        length (.remaining bb)]
                    (BufferedOutputStream/.write os bytes offset length)
                    (.position bb (.limit bb))
-                   (BufferedOutputStream/.flush ^BufferedOutputStream os)))]
+                   (BufferedOutputStream/.flush os)))]
     (reify Connection
       (closed? [_]
         (Socket/.isClosed (socket)))
