@@ -1,5 +1,4 @@
 (ns ^:no-doc muutos.impl.subscriber
-  (:refer-clojure :exclude [send])
   (:require [clojure.string :as string]
             [cognitect.anomalies :as-alias anomalies]
             [muutos.impl.connection :as connection]
