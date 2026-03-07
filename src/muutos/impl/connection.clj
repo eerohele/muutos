@@ -1,15 +1,17 @@
 (ns ^:no-doc muutos.impl.connection
-  (:refer-clojure :exclude [read])
+  (:refer-clojure :exclude [flush read])
   (:require [cognitect.anomalies :as-alias anomalies]
             [muutos.impl.anomaly :as anomaly :refer [anomaly!]]
             [muutos.impl.decode :as decode]
             [muutos.impl.encode :as encode]
+            [muutos.impl.lockable :refer [Lockable with-lock]]
             [muutos.impl.ssl :as ssl])
   (:import (java.io BufferedInputStream BufferedOutputStream InputStream)
            (java.lang AutoCloseable)
            (java.net ConnectException InetSocketAddress Socket SocketException)
            (java.nio ByteBuffer)
-           (javax.net.ssl SSLSocket)))
+           (javax.net.ssl SSLSocket)
+           (java.util.concurrent.locks ReentrantLock)))
 
 (set! *warn-on-reflection* true)
 (set! *unchecked-math* :warn-on-boxed)
@@ -30,7 +32,10 @@
     "Read a java.nio.ByteBuffer from a socket.")
 
   (write [this message]
-    "Write a java.nio.ByteBuffer into a socket."))
+    "Write a java.nio.ByteBuffer into a socket.")
+
+  (flush [this]
+    "Flush all buffered writes."))
 
 (defn ^:private read-n-bytes ^bytes [in n]
   (let [read-bytes (InputStream/.readNBytes in n)]
@@ -51,29 +56,31 @@
         socket (fn [] (-> state deref :socket))
         input-stream (fn [] (-> state deref :input-stream))
         output-stream (fn [] (-> state deref :output-stream))
+        -lock (ReentrantLock.)
         -write (fn [os msg]
                  (let [^ByteBuffer bb (encode/encode msg)
                        bytes (.array bb)
                        offset (+ (.arrayOffset bb) (.position bb))
                        length (.remaining bb)]
                    (BufferedOutputStream/.write os bytes offset length)
-                   (.position bb (.limit bb))
-                   (BufferedOutputStream/.flush os)))]
+                   (.position bb (.limit bb))))]
     (reify Connection
       (closed? [_]
         (Socket/.isClosed (socket)))
 
       (secure [this options]
-        (write this {:type :ssl-request})
+        (with-lock this
+          (write this {:type :ssl-request})
+          (flush this)
 
-        (let [prefix (BufferedInputStream/.read (input-stream))]
-          ;; \S means yes, so upgrade the connection to use TLS.
-          (when (= #_\S 83 prefix)
-            (swap! state
-              (fn [{:keys [socket]}]
-                (let [ssl-context (ssl/make-context options)
-                      ssl-socket (ssl/upgrade-to-ssl-socket ssl-context socket)]
-                  (io ssl-socket)))))))
+          (let [prefix (BufferedInputStream/.read (input-stream))]
+            ;; \S means yes, so upgrade the connection to use TLS.
+            (when (= #_\S 83 prefix)
+              (swap! state
+                (fn [{:keys [socket]}]
+                  (let [ssl-context (ssl/make-context options)
+                        ssl-socket (ssl/upgrade-to-ssl-socket ssl-context socket)]
+                    (io ssl-socket))))))))
 
       (secure? [_]
         (instance? SSLSocket (socket)))
@@ -110,17 +117,25 @@
       (write [_ message]
         (-write (output-stream) message))
 
+      (flush [_]
+        (BufferedOutputStream/.flush (output-stream)))
+
       AutoCloseable
-      (close [_]
+      (close [this]
         (swap! state
           (fn [{:keys [socket output-stream] :as state}]
             (try
-              (-write output-stream {:type :terminate})
+              (with-lock this
+                (-write output-stream {:type :terminate})
+                (BufferedOutputStream/.flush output-stream))
               ;; The socket is already closed when we attempt to send the
               ;; terminate message; NBD.
               (catch SocketException _))
             (Socket/.close socket)
-            state))))))
+            state)))
+
+      Lockable
+      (lock [_] -lock))))
 
 (defn open
   "Given a host name (string) and a port number (long), open a TCP socket

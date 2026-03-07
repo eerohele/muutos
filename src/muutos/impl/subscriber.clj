@@ -4,6 +4,7 @@
             [muutos.impl.connection :as connection]
             [muutos.impl.data-row :as data-row]
             [muutos.impl.data-type :as data-type]
+            [muutos.impl.lockable :refer [with-lock]]
             [muutos.impl.time :as time]
             [muutos.sql-client :as sql-client :refer [sq]]))
 
@@ -33,12 +34,18 @@
 
 (defn send-status-update
   [connection lsn & {:keys [reply-asap?] :or {reply-asap? false}}]
-  (connection/write connection
-    (standby-status-update-message
-      {:written-lsn lsn
-       :flushed-lsn lsn
-       :applied-lsn lsn
-       :reply-asap? reply-asap?})))
+  ;; Only one thread will ever be writing at any one time, so locking isn't
+  ;; strictly necessary. However, it will have no practical negative
+  ;; performance impact, either, since we're not in a hot loop.
+  (with-lock connection
+    (connection/write connection
+      (standby-status-update-message
+        {:written-lsn lsn
+         :flushed-lsn lsn
+         :applied-lsn lsn
+         :reply-asap? reply-asap?}))
+
+    (connection/flush connection)))
 
 (defn ^:private resolve-state [state oid]
   (let [keys (-> state :oid->keys (get oid))

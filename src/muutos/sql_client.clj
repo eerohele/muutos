@@ -120,10 +120,13 @@
 
           (connection [_] connection)
 
-          (send [this message]
+          (enqueue [this message]
             (if-not (connection/closed? connection)
               (connection/write connection message)
               (anomaly! "Disconnected from server; can't send" ::anomalies/incorrect {:reason :disconnected})))
+
+          (flush [this]
+            (connection/flush connection))
 
           (recv [_]
             (connection/read connection {}))
@@ -159,15 +162,16 @@
                       (let [oids (mapv (fn [parameter] (client/oid client parameter)) parameters)
                             parameters (mapv bin/encode parameters)]
                         ;; FIXME: What if encoding any of these fail? Especially ones user input can affect?
-                        (client/send client {:type :parse :oids oids :statement unnamed-statement :query q})
-                        (client/send client {:type :describe :target :statement :name unnamed-statement})
-                        (client/send client {:type :bind :statement unnamed-statement :portal unnamed-portal :parameters parameters})
-                        (client/send client {:type :execute :portal unnamed-portal :max-rows 0})
+                        (client/enqueue client {:type :parse :oids oids :statement unnamed-statement :query q})
+                        (client/enqueue client {:type :describe :target :statement :name unnamed-statement})
+                        (client/enqueue client {:type :bind :statement unnamed-statement :portal unnamed-portal :parameters parameters})
+                        (client/enqueue client {:type :execute :portal unnamed-portal :max-rows 0})
                         (recur (inc n) (rest qs)))
                       n))]
 
       (when (pos? n)
-        (client/send client {:type :sync})
+        (client/enqueue client {:type :sync})
+        (client/flush client)
 
         (let [{:keys [key-fn]} (client/options client)
 
@@ -215,7 +219,8 @@
                                       (do
                                         ;; Not implemented; immediately send CopyDone to tell Postgres not to
                                         ;; wait for more data.
-                                        (client/send client {:type :copy-done})
+                                        (client/enqueue client {:type :copy-done})
+                                        (client/flush client)
                                         (anomaly! "Not implemented: COPY ... FROM STDIN" ::anomalies/unsupported {:type type}))
 
                                       ;; The server sends CopyBoth in response to START_REPLICATION. If
@@ -281,7 +286,8 @@
   ([client q] (sq client q {}))
   ([client q opts]
    (with-lock client
-     (client/send client {:type :simple-query :query q})
+     (client/enqueue client {:type :simple-query :query q})
+     (client/flush client)
      (let [{:keys [key-fn]} (client/options client)]
        (try
          (loop [command-complete {}
@@ -314,7 +320,8 @@
                (do
                  ;; Not implemented; immediately send CopyDone to tell Postgres not to
                  ;; wait for more data.
-                 (client/send client {:type :copy-done})
+                 (client/enqueue client {:type :copy-done})
+                 (client/flush client)
                  (let [ex (ex-info "Not implemented: COPY ... FROM STDIN"
                             {::anomalies/category ::anomalies/unsupported :type type})]
                    (recur command-complete row-description data ex)))

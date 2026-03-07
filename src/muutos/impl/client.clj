@@ -1,5 +1,5 @@
 (ns ^:no-doc muutos.impl.client
-  (:refer-clojure :exclude [send])
+  (:refer-clojure :exclude [flush])
   (:require [clojure.string :as string]
             [cognitect.anomalies :as-alias anomalies]
             [muutos.impl.anomaly :as anomaly :refer [anomaly!]]
@@ -7,6 +7,7 @@
             [muutos.impl.connection :as connection]
             [muutos.impl.charset :as charset]
             [muutos.impl.crypto :as crypto]
+            [muutos.impl.lockable :refer [with-lock]]
             [muutos.impl.sasl :as sasl])
   (:import (java.io ByteArrayOutputStream)))
 
@@ -16,7 +17,8 @@
   (options [this])
   (log [this level event-name data])
   (connection [this])
-  (send [this msg])
+  (enqueue [this msg])
+  (flush [this])
   (recv [this])
   (oid [this x])
   (aux [this]))
@@ -57,6 +59,7 @@
                                        :user user
                                        :nonce client-nonce}]
           (connection/write connection client-initial-response)
+          (connection/flush connection)
           (recur (assoc state :client-nonce client-nonce :auth-mechanism mechanism :user user)))
 
         :auth/sasl-continue
@@ -76,6 +79,8 @@
           (connection/write connection
             {:type :sasl-response
              :client-final-message client-final-message})
+
+          (connection/flush connection)
           (recur (assoc state :salted-password salted-password :auth-message auth-message)))
 
         :auth/sasl-final
@@ -113,10 +118,11 @@
   (let [tls-options (select-keys options [:key-managers :trust-managers :secure-random])
         startup-parameters (select-keys options [:user :database :options :replication :application_name])
         startup-message {:type :startup :parameters startup-parameters}]
-    (connection/secure connection tls-options)
-    (connection/write connection startup-message))
-
-  (authentication-flow connection options))
+    (with-lock connection
+      (connection/secure connection tls-options)
+      (connection/write connection startup-message)
+      (connection/flush connection)
+      (authentication-flow connection options))))
 
 (def default-options
   {:host "localhost"

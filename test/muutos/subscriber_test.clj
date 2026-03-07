@@ -762,8 +762,10 @@
 (defn ^:private broken-pipe-client []
   (let [lock (ReentrantLock.)]
     (reify client/Client
-      (send [_ _message]
+      (enqueue [_ _message]
         (throw (SocketException. "Broken pipe")))
+
+      (flush [_] #_noop)
 
       (oid [_ _parameter] 25)
 

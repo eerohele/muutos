@@ -6,7 +6,7 @@
             [muutos.impl.client :as client]
             [muutos.impl.connection :as connection]
             [muutos.impl.hook :as hook]
-            [muutos.impl.lockable :refer [Lockable]]
+            [muutos.impl.lockable :refer [Lockable with-lock]]
             [muutos.impl.subscriber :as impl]
             [muutos.impl.thread :as thread]
             [muutos.sql-client :as sql-client])
@@ -330,10 +330,13 @@
 
           (connection [_] connection)
 
-          (send [_ message]
+          (enqueue [_ message]
             (if-not (connection/closed? connection)
               (connection/write connection message)
               (anomaly! "Disconnected from server; can't send" ::anomalies/incorrect {:reason :disconnected})))
+
+          (flush [_]
+            (connection/flush connection))
 
           (recv [_] (.take recvq))
 
