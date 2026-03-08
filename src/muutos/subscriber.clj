@@ -280,7 +280,7 @@
                 (log :debug ::flush-lsn {:lsn lsn})
                 (impl/send-status-update connection lsn)
                 (swap! lsn-flush-state assoc :unflushed-lsn nil :flushed-lsn lsn)
-                (catch Exception ex
+                (catch Throwable ex
                   (log :error ::flush-lsn-error {:ex (Throwable->map ex)})
                   ;; If the subscriber can't acknowledge the transaction as
                   ;; having been processed, send the exit signal.
