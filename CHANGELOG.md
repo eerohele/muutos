@@ -10,6 +10,8 @@ All notable changes to this project will be documented in this file. This change
   fail, because every thread used the same non-thread-safe `MessageDigest`
   instance.
 
+- Optimize SQL client by improving buffering
+
 ## 2025-12-18
 - Fix integer overflow when converting log sequence numbers to hex strings
 - Omit expected and actual SCRAM-SHA-256 signatures from exception data
