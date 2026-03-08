@@ -110,8 +110,7 @@
           (ByteBuffer/.put buffer body)
           ;; Prepare the buffer for reading.
           (.flip buffer)
-          ;; Wrap the new byte array into a ByteBuffer and hand it off to the
-          ;; decoder, which turns it into a Clojure map.
+          ;; Hand the buffer to the decoder, which turns it into a Clojure map.
           (decode/decode buffer state)))
 
       (write [_ message]
