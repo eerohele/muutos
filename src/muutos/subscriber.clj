@@ -129,7 +129,8 @@
       :work-queue work-queue)))
 
 (defn- default-executor-close-fn [executor]
-  (ExecutorService/.close executor))
+  (ExecutorService/.shutdown executor)
+  (ExecutorService/.awaitTermination executor 30 TimeUnit/SECONDS))
 
 (defn connect
   "Given the name of a logical replication slot (ident or string) and options,
