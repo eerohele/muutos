@@ -223,12 +223,9 @@
       (put ^ByteBuffer bb)
       (flip))))
 
-(def ^:private ^ByteBuffer buffer-standby-status-update
-  (ByteBuffer/allocate (+ 1 64 64 64 64 1)))
-
 (defmethod encode :standby-status-update
   [{:keys [written-lsn flushed-lsn applied-lsn system-clock reply-asap?]}]
-  (.. (.duplicate buffer-standby-status-update)
+  (.. (ByteBuffer/allocate (+ 1 64 64 64 64 1))
     (put (byte 114))
     (putLong written-lsn)
     (putLong flushed-lsn)
