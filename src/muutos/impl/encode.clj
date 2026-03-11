@@ -1,6 +1,6 @@
 (ns ^:no-doc muutos.impl.encode
   "Encode Clojure maps into java.nio.ByteBuffers for sending to PostgreSQL."
-  (:refer-clojure :exclude [flush sync])
+  (:refer-clojure :exclude [sync])
   (:require [muutos.impl.charset :as charset])
   (:import (java.nio ByteBuffer)))
 
