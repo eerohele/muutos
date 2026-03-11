@@ -100,6 +100,7 @@
                   (.put recvq message)
                   [true state])))
             (catch SocketException ex
+              (.offer recvq {:type :error :ex ex})
               (when (AtomicReference/.get replicating?)
                 (throw ex)))
             (catch Exception ex
