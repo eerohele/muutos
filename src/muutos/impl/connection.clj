@@ -143,14 +143,25 @@
   Options:
 
     :host (string)
+      The host name of the PostgreSQL server.
 
     :port (long)
+      The port number the PostgreSQL server is listening on.
 
-    :connect-timeout (java.time.Duration, default: \"PT0S\")"
-  [& {:keys [host port connect-timeout] :or {connect-timeout (Duration/ofMillis 0)}}]
+    :socket-timeout (java.time.Duration, defauklt: \"PT0S\")
+      The SO_TIMEOUT value for the TCP socket.
+
+    :connect-timeout (java.time.Duration, default: \"PT0S\")
+      The connect timeout for the TCP socket."
+  [& {:keys [host port connect-timeout socket-timeout]
+      :or {connect-timeout (Duration/ofMillis 0)
+           socket-timeout (Duration/ofMillis 0)}}]
   (try
     (let [address (InetSocketAddress. ^String host ^long port)
-          socket (doto (Socket.) (.setKeepAlive true) (.setTcpNoDelay false))]
+          socket (doto (Socket.)
+                   (.setKeepAlive true)
+                   (.setTcpNoDelay false)
+                   (.setSoTimeout (Duration/.toMillis socket-timeout)))]
       (.connect socket address (Duration/.toMillis connect-timeout))
       (make socket))
     (catch ConnectException ex
