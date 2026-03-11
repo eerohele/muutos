@@ -11,6 +11,7 @@
            (java.net ConnectException InetSocketAddress Socket SocketException)
            (java.nio ByteBuffer)
            (javax.net.ssl SSLSocket)
+           (java.time Duration)
            (java.util.concurrent.locks ReentrantLock)))
 
 (set! *warn-on-reflection* true)
@@ -137,13 +138,20 @@
       (lock [_] -lock))))
 
 (defn open
-  "Given a host name (string) and a port number (long), open a TCP socket
-  connection to a PostgreSQL server listening on that host and port."
-  [host port]
+  "Given options, open a TCP socket connection to a PostgreSQL server.
+
+  Options:
+
+    :host (string)
+
+    :port (long)
+
+    :connect-timeout (java.time.Duration, default: \"PT0S\")"
+  [& {:keys [host port connect-timeout] :or {connect-timeout (Duration/ofMillis 0)}}]
   (try
     (let [address (InetSocketAddress. ^String host ^long port)
           socket (doto (Socket.) (.setKeepAlive true) (.setTcpNoDelay false))]
-      (.connect socket address)
+      (.connect socket address (Duration/.toMillis connect-timeout))
       (make socket))
     (catch ConnectException ex
       (anomaly! "Connection refused" ::anomalies/unavailable {:host host :port port} ex))))

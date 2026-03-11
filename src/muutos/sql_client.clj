@@ -92,7 +92,11 @@
     The most common use case for this function is to transform attribute
     names into keywords. For example:
 
-        :key-fn (fn [_table-oid attr-name] (keyword attr-name))"
+        :key-fn (fn [_table-oid attr-name] (keyword attr-name))
+
+  - `:connect-timeout` (java.time.Duration, default: PT0S)
+
+    TCP connection timeout value. A zero duration means infinite timeout."
   ^AutoCloseable [& {:keys [^String host ^long port user password database replication log  oid-fn]
                      :or {oid-fn (constantly nil)
                           log (constantly nil)}
@@ -101,12 +105,12 @@
 
         aux-client (when-not (= :aux (:client-type options))
                      (let [aux-options (-> options
-                                         (select-keys [:host :port :user :password :database :trust-managers])
+                                         (select-keys [:host :port :user :password :database :trust-managers :connect-timeout])
                                          (assoc :client-type :aux))]
                        (connect aux-options)))
 
         -lock (ReentrantLock.)
-        connection (connection/open (:host options) (:port options))
+        connection (connection/open options)
         session (client/start-session connection options)
 
         client

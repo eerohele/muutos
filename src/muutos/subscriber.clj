@@ -236,7 +236,11 @@
 
     Whether to support [large transaction streaming](https://www.postgresql.org/docs/current/logicaldecoding-streaming.html).
 
-    Using `:parallel` requires `:protocol-version` 4 or higher."
+    Using `:parallel` requires `:protocol-version` 4 or higher.
+
+  - `:connect-timeout` (java.time.Duration, default: PT0S)
+
+    TCP connection timeout value. A zero duration means infinite timeout."
   ^Thread [slot-name
            & {:as options
               :keys [publications handler executor executor-close-fn start-lsn log ^Duration ack-interval messages?]
@@ -253,7 +257,7 @@
                                         :streaming false
                                         :replication :database}
                                        options)
-        connection (or (:connection options) (connection/open (:host options) (:port options)))
+        connection (or (:connection options) (connection/open options))
         reentrant-lock (ReentrantLock.)
         ;; A marker that shows whether we've successfully completed the query
         ;; the starts logical replication.
