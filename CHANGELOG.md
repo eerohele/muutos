@@ -10,6 +10,18 @@ All notable changes to this project will be documented in this file. This change
   fail, because every thread used the same non-thread-safe `MessageDigest`
   instance.
 
+- Fix potential race condition in when flushing LSNs
+
+  Prior to this change, it was possible for Muutos to miss sending one LSN to PostgreSQL. This did not cause data loss, because the situation was rectified when the next LSN came in. Or if it never did, PostgreSQL would simply have re-sent the batch that had the missed LSN. Still, the race no longer occurs.
+
+- Improve error handling when flushing LSNs
+
+  Prior to this, a non-`Exception` error (e.g. an `OutOfMemoryError`) could cause the subscriber to hang indefinitely.
+
+- Add `:connect-timeout` and `:socket-timeout` options to both `muutos.sql-client/connect` and `muutos.subscriber/connect`.
+
+- Fix potential hang when a `SocketException` occurred during subscriber startup
+
 - Optimize SQL client by improving buffering
 
 ## 2025-12-18
