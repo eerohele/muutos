@@ -833,10 +833,10 @@ for other PostgreSQL data types.
 
 ## Deploying Muutos as a Kubernetes app
 
-See [`dev/app`](/dev/app) for an example on how to deploy Muutos as a Kubernetes app. To run the example app, you must have Kubernetes set up such that you can use the `kubectl` command, and then:
+See [`demo/k8s`](/demo/k8s) for an example on how to deploy Muutos as a Kubernetes app. To run the example app, you must have Kubernetes set up such that you can use the `kubectl` command, and then:
 
 ```bash
-$ cd dev/app
+$ cd demo/k8s
 $ clj -T:build image
 ...
 $ kubectl apply -f k8s/postgres.yml

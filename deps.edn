@@ -24,7 +24,7 @@
                               org.postgresql/postgresql {:mvn/version "42.7.10"}
                               clj-kondo/clj-kondo {:mvn/version "2026.01.19"}}}
 
-           :app {:local/root "dev/app"}
+           :demo/k8s {:local/root "demo/k8s"}
 
            :quickdoc {:deps {io.github.borkdude/quickdoc {:git/sha "026b4fab8570853e38c3097fe1f8619abc95b2e0"}}
                       :main-opts ["-m" "babashka.cli.exec" "quickdoc.api" "quickdoc"]
