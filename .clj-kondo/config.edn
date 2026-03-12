@@ -3,7 +3,7 @@
   {:level :error
    :warn-only-on-interop true}
 
-  :unresolved-symbol {:exclude [(clojure.test/is [match?])]}}
+  :unresolved-symbol {:exclude [(clojure.test/is [match? thrown-match?])]}}
 
  :skip-comments true
 
