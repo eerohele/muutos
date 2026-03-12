@@ -94,12 +94,12 @@
 
         :key-fn (fn [_table-oid attr-name] (keyword attr-name))
 
-  - `:socket-timeout` (java.time.Duration, default: PT0S)
+  - `:socket-timeout` (`java.time.Duration`, default: PT0S)
 
     The `SO_TIMEOUT` value of the of the socket connection. A zero duration
     means infinite timeout.
 
-  - `:connect-timeout` (java.time.Duration, default: PT0S)
+  - `:connect-timeout` (`java.time.Duration`, default: PT0S)
 
     TCP connection timeout value. A zero duration means infinite timeout."
   ^AutoCloseable [& {:keys [^String host ^long port user password database replication log  oid-fn]

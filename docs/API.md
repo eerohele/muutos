@@ -178,12 +178,12 @@ Connect to a PostgreSQL database.
 
         :key-fn (fn [_table-oid attr-name] (keyword attr-name))
 
-  - `:socket-timeout` (java.time.Duration, default: PT0S)
+  - `:socket-timeout` (`java.time.Duration`, default: PT0S)
 
     The `SO_TIMEOUT` value of the of the socket connection. A zero duration
     means infinite timeout.
 
-  - `:connect-timeout` (java.time.Duration, default: PT0S)
+  - `:connect-timeout` (`java.time.Duration`, default: PT0S)
 
     TCP connection timeout value. A zero duration means infinite timeout.
 <p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L27-L158">Source</a></sub></p>
@@ -338,7 +338,7 @@ Given the name of a logical replication slot (ident or string) and options,
     handler function executor (see `:executor`).
 
     The default implementation shuts down the executor and awaits for
-    its termination indefinitely.
+    its termination for 30 seconds.
 
     **Note**: If you shut down the executor immediately (using `.shutdownNow`),
     it is possible that the executor shuts down before the handler function can
@@ -409,12 +409,12 @@ Given the name of a logical replication slot (ident or string) and options,
 
     Using `:parallel` requires `:protocol-version` 4 or higher.
 
-  - `:socket-timeout` (java.time.Duration, default: PT0S)
+  - `:socket-timeout` (`java.time.Duration`, default: PT0S)
 
     The `SO_TIMEOUT` value of the of the socket connection. A zero duration
     means infinite timeout.
 
-  - `:connect-timeout` (java.time.Duration, default: PT0S)
+  - `:connect-timeout` (`java.time.Duration`, default: PT0S)
 
     TCP connection timeout value. A zero duration means infinite timeout.
 <p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/subscriber.clj#L137-L432">Source</a></sub></p>

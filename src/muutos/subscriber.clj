@@ -169,7 +169,7 @@
     handler function executor (see `:executor`).
 
     The default implementation shuts down the executor and awaits for
-    its termination indefinitely.
+    its termination for 30 seconds.
 
     **Note**: If you shut down the executor immediately (using `.shutdownNow`),
     it is possible that the executor shuts down before the handler function can
@@ -240,12 +240,12 @@
 
     Using `:parallel` requires `:protocol-version` 4 or higher.
 
-  - `:socket-timeout` (java.time.Duration, default: PT0S)
+  - `:socket-timeout` (`java.time.Duration`, default: PT0S)
 
     The `SO_TIMEOUT` value of the of the socket connection. A zero duration
     means infinite timeout.
 
-  - `:connect-timeout` (java.time.Duration, default: PT0S)
+  - `:connect-timeout` (`java.time.Duration`, default: PT0S)
 
     TCP connection timeout value. A zero duration means infinite timeout."
   ^AutoCloseable
