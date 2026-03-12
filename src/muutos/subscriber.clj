@@ -248,16 +248,17 @@
   - `:connect-timeout` (java.time.Duration, default: PT0S)
 
     TCP connection timeout value. A zero duration means infinite timeout."
-  ^Thread [slot-name
-           & {:as options
-              :keys [publications handler executor executor-close-fn start-lsn log ^Duration ack-interval messages?]
-              :or {publications #{}
-                   handler (constantly nil)
-                   executor-close-fn default-executor-close-fn
-                   start-lsn 0
-                   log (constantly nil)
-                   messages? true
-                   ack-interval (Duration/ofSeconds 10)}}]
+  ^AutoCloseable
+  [slot-name
+   & {:as options
+      :keys [publications handler executor executor-close-fn start-lsn log ^Duration ack-interval messages?]
+      :or {publications #{}
+           handler (constantly nil)
+           executor-close-fn default-executor-close-fn
+           start-lsn 0
+           log (constantly nil)
+           messages? true
+           ack-interval (Duration/ofSeconds 10)}}]
   ;; Allow passing in custom muutos.impl.connection/Connection to simulate network errors.
   (let [{:keys [key-fn] :as options} (merge client/default-options
                                        {:protocol-version 2
