@@ -32,7 +32,7 @@
 #_{:clj-kondo/ignore [:missing-protocol-method]}
 (extend-protocol Matcher
   byte/1
-  (-match [this actual]
+  (-match [this ^bytes actual]
     (if (and (bytes? this) (bytes? actual) (Arrays/equals this actual))
       {::result/type   :match
        ::result/value  actual
@@ -78,7 +78,7 @@
          :host (host @server)
          :port (port @server)} options))
 
-(defn connect [slot-name & {:as options}]
+(defn connect ^AutoCloseable [slot-name & {:as options}]
   (subscriber/connect slot-name (test-options options)))
 
 (deftest ^:integration unknown-slot
@@ -755,7 +755,7 @@
                          (test-options
                            :port (port server)
                            :publications #{"p"}))]
-        (.close server)
+        (AutoCloseable/.close server)
 
         (is (thrown-match? ExceptionInfo {::anomalies/category ::anomalies/unavailable}
               (deref subscriber))))

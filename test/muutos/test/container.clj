@@ -25,5 +25,5 @@
                    (port [_] (get (:mapped-ports container) 5432))
                    AutoCloseable
                    (close [_] (tc/stop! container))))]
-    (hook/on-shutdown (.close server))
+    (hook/on-shutdown (AutoCloseable/.close server))
     server))
