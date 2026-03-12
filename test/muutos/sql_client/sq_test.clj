@@ -11,6 +11,8 @@
            (java.net InetAddress)
            (muutos.type LogSequenceNumber)))
 
+(set! *warn-on-reflection* true)
+
 (def container-opts
   {:env-vars {"POSTGRES_PASSWORD" "postgres"
               "POSTGRES_DB" "test"}
@@ -120,7 +122,7 @@
     (is (= [{"date" #time/date "2025-01-01"}] (sq pg "SELECT '2025-01-01'::date"))
       "date")
 
-    (is (same? (double 2.718281828459045)
+    (is (same? 2.718281828459045
           (sq1 pg "float8" "SELECT 2.718281828459045::float8"))
       "double precision")
 

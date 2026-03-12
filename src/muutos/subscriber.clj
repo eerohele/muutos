@@ -6,7 +6,7 @@
             [muutos.impl.client :as client]
             [muutos.impl.connection :as connection]
             [muutos.impl.hook :as hook]
-            [muutos.impl.lockable :refer [Lockable with-lock]]
+            [muutos.impl.lockable :refer [Lockable]]
             [muutos.impl.subscriber :as impl]
             [muutos.impl.thread :as thread]
             [muutos.sql-client :as sql-client])
@@ -23,11 +23,12 @@
 (defn ^:private lsn->hex-string
   "Given a 64-bit numeric (long) representation of a PostgreSQL log sequence
   number (long), return its hexadecimal string representation."
-  [^long n]
+  [n]
   (let [byte-offset (bit-shift-right n 32)
         segment (long n)]
     (format "%X/%X" byte-offset segment)))
 
+#_{:clj-kondo/ignore [:unused-private-var]}
 (defn ^:private hex-string->lsn
   "Given a hexadecimal string representation of a PostgreSQL log sequence
   number, return its 64-bit numeric (long) representation."
@@ -337,6 +338,8 @@
         (reify
           client/Client
           (options [_] options)
+
+          (aux [_] nil)
 
           (log [_ level event-name data]
             (log level event-name data))

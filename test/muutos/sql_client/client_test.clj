@@ -6,6 +6,8 @@
             [muutos.sql-client :refer [connect sq]])
   (:import (java.util.concurrent ArrayBlockingQueue)))
 
+(set! *warn-on-reflection* true)
+
 (defn ^:private count-clients [pg]
   (->
     (sq pg "SELECT COUNT(1) AS clients
@@ -19,7 +21,7 @@
               pg (connect :host (host server) :port (port server))]
     (is (= 2 (count-clients pg)))
     (with-open [_ (connect :host (host server) :port (port server))])
-    (Thread/sleep 1000)
+    (^[long] Thread/sleep 1000)
     (is (= 2 (count-clients pg)))))
 
 (deftest ^:integration concurrent-connect

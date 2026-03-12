@@ -1,6 +1,5 @@
 (ns ^{:clj-kondo/ignore #{:unresolved-symbol}} muutos.codec.bin
   "Turn Postgres binary data into Java data types and vice versa."
-  (:refer-clojure :exclude [parse-uuid])
   (:require [cognitect.anomalies :as-alias anomalies]
             [muutos.error :as-alias error]
             [muutos.impl.anomaly :refer [anomaly!]]

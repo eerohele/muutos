@@ -4,6 +4,8 @@
             [muutos.test.server :refer [Server]])
   (:import (java.lang AutoCloseable)))
 
+(set! *warn-on-reflection* true)
+
 (def default-opts
   {:env-vars {"POSTGRES_PASSWORD" "postgres"
               "POSTGRES_DB" "test"}

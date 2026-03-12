@@ -20,6 +20,8 @@
            (java.util Random)
            (muutos.type Box Circle Document Inet Lexeme Line LineSegment LogSequenceNumber Path Point Polygon Range)))
 
+(set! *warn-on-reflection* true)
+
 (def container-opts
   {:env-vars {"POSTGRES_PASSWORD" "postgres"
               "POSTGRES_DB" "test"}
@@ -134,8 +136,8 @@
           (eq1 pg "float4" ["SELECT $1 AS float4" (float 3.14)]))
       "single precision")
 
-    (is (same? (double 2.718281828459045)
-          (eq1 pg "float8" ["SELECT $1 AS float8" (double 2.718281828459045)]))
+    (is (same? 2.718281828459045
+          (eq1 pg "float8" ["SELECT $1 AS float8" 2.718281828459045]))
       "double precision")
 
     (is (NaN? (eq1 pg "float8" ["SELECT 'NaN'::float8"])) "NaN")

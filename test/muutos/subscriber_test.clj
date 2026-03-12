@@ -27,6 +27,9 @@
            (java.util.concurrent ArrayBlockingQueue BlockingQueue ExecutorService RejectedExecutionException SynchronousQueue TimeUnit)
            (java.util.concurrent.locks ReentrantLock)))
 
+(set! *warn-on-reflection* true)
+
+#_{:clj-kondo/ignore [:missing-protocol-method]}
 (extend-protocol Matcher
   byte/1
   (-match [this actual]
@@ -761,6 +764,7 @@
 
 (defn ^:private broken-pipe-client []
   (let [lock (ReentrantLock.)]
+    #_{:clj-kondo/ignore [:missing-protocol-method]}
     (reify client/Client
       (enqueue [_ _message]
         (throw (SocketException. "Broken pipe")))

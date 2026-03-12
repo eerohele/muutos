@@ -3,6 +3,8 @@
             [muutos.impl.hook :as hook])
   (:import (java.lang AutoCloseable)))
 
+(set! *warn-on-reflection* true)
+
 (defprotocol Server
   (host [this])
   (port [this]))
