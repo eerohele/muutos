@@ -37,7 +37,7 @@ Turn Postgres binary data into Java data types and vice versa.
 
 A Clojure/Java type that can be encoded into a `java.nio.ByteBuffer` for use
   as a PostgreSQL query parameter.
-<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/codec/bin.clj#L392-L397">Source</a></sub></p>
+<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/codec/bin.clj#L390-L395">Source</a></sub></p>
 
 ## <a name="muutos.codec.bin/decode">`decode`</a>
 ``` clojure
@@ -48,7 +48,7 @@ Function.
 Given a PostgreSQL data type OID (`int`) and a `java.nio.ByteBuffer`, decode
   the PostgreSQL value (of the given data type) in the byte buffer into a Java
   data type.
-<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/codec/bin.clj#L44-L48">Source</a></sub></p>
+<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/codec/bin.clj#L43-L47">Source</a></sub></p>
 
 ## <a name="muutos.codec.bin/decode-cstring">`decode-cstring`</a>
 ``` clojure
@@ -58,7 +58,7 @@ Function.
 
 Given a `java.nio.ByteBuffer`, decode a null-terminated string (aka C
   string) from the buffer.
-<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/codec/bin.clj#L26-L38">Source</a></sub></p>
+<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/codec/bin.clj#L25-L37">Source</a></sub></p>
 
 ## <a name="muutos.codec.bin/encode">`encode`</a>
 ``` clojure
@@ -67,7 +67,7 @@ Given a `java.nio.ByteBuffer`, decode a null-terminated string (aka C
 Function.
 
 Encode a parameter into a `java.nio.ByteBuffer`.
-<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/codec/bin.clj#L396-L397">Source</a></sub></p>
+<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/codec/bin.clj#L394-L395">Source</a></sub></p>
 
 -----
 # <a name="muutos.codec.txt">muutos.codec.txt</a>
@@ -177,7 +177,16 @@ Connect to a PostgreSQL database.
     names into keywords. For example:
 
         :key-fn (fn [_table-oid attr-name] (keyword attr-name))
-<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L27-L146">Source</a></sub></p>
+
+  - `:socket-timeout` (java.time.Duration, default: PT0S)
+
+    The `SO_TIMEOUT` value of the of the socket connection. A zero duration
+    means infinite timeout.
+
+  - `:connect-timeout` (java.time.Duration, default: PT0S)
+
+    TCP connection timeout value. A zero duration means infinite timeout.
+<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L27-L158">Source</a></sub></p>
 
 ## <a name="muutos.sql-client/create-slot">`create-slot`</a>
 ``` clojure
@@ -194,7 +203,7 @@ Given a client and a slot name (string), create a (pgoutput) logical
 
     If true, do not persist the slot to disk and release it when the current
     session ends.
-<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L389-L400">Source</a></sub></p>
+<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L405-L416">Source</a></sub></p>
 
 ## <a name="muutos.sql-client/drop-slot">`drop-slot`</a>
 ``` clojure
@@ -204,7 +213,7 @@ Function.
 
 Given a client and a slot name (string), drop the named logical replication
   slot.
-<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L405-L409">Source</a></sub></p>
+<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L421-L425">Source</a></sub></p>
 
 ## <a name="muutos.sql-client/emit-message">`emit-message`</a>
 ``` clojure
@@ -230,7 +239,7 @@ Given a SQL client, a prefix (string), content (string or bytes), and
      Iff true, immediately flush the message into the write-ahead log.
 
      Has no effect if `:transactional?` is `true`.
-<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L414-L434">Source</a></sub></p>
+<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L430-L450">Source</a></sub></p>
 
 ## <a name="muutos.sql-client/eq">`eq`</a>
 ``` clojure
@@ -241,7 +250,7 @@ Function.
 Given a client and any number of query vectors, run an extended query.
 
   To run a [pipeline](https://www.postgresql.org/docs/current/protocol-flow.html#PROTOCOL-FLOW-PIPELINING) of queries, pass more than one query vector.
-<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L151-L267">Source</a></sub></p>
+<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L163-L281">Source</a></sub></p>
 
 ## <a name="muutos.sql-client/ignoring-dupes">`ignoring-dupes`</a>
 ``` clojure
@@ -253,7 +262,7 @@ Execute body.
 
   If the body throws a `clojure.lang.ExceptionInfo` that indicates a PostgreSQL
   duplicate object, ignore the exception.
-<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L374-L384">Source</a></sub></p>
+<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L390-L400">Source</a></sub></p>
 
 ## <a name="muutos.sql-client/sq">`sq`</a>
 ``` clojure
@@ -266,7 +275,7 @@ Given a client and a query string, run a simple query.
 
   Simple queries do not support parameter placeholders. They can only be used
   with trusted inputs.
-<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L276-L355">Source</a></sub></p>
+<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L290-L371">Source</a></sub></p>
 
 -----
 # <a name="muutos.subscriber">muutos.subscriber</a>
@@ -329,7 +338,7 @@ Given the name of a logical replication slot (ident or string) and options,
     handler function executor (see `:executor`).
 
     The default implementation shuts down the executor and awaits for
-    its termination for 30 seconds.
+    its termination indefinitely.
 
     **Note**: If you shut down the executor immediately (using `.shutdownNow`),
     it is possible that the executor shuts down before the handler function can
@@ -399,7 +408,16 @@ Given the name of a logical replication slot (ident or string) and options,
     Whether to support [large transaction streaming](https://www.postgresql.org/docs/current/logicaldecoding-streaming.html).
 
     Using `:parallel` requires `:protocol-version` 4 or higher.
-<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/subscriber.clj#L135-L413">Source</a></sub></p>
+
+  - `:socket-timeout` (java.time.Duration, default: PT0S)
+
+    The `SO_TIMEOUT` value of the of the socket connection. A zero duration
+    means infinite timeout.
+
+  - `:connect-timeout` (java.time.Duration, default: PT0S)
+
+    TCP connection timeout value. A zero duration means infinite timeout.
+<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/subscriber.clj#L137-L432">Source</a></sub></p>
 
 ## <a name="muutos.subscriber/flow-controlling-executor">`flow-controlling-executor`</a>
 ``` clojure
@@ -415,7 +433,7 @@ Return a single-thread `java.util.concurrent.ExecutorService` that runs off
   - `:work-queue` (`java.util.concurrent.BlockingQueue`, default: `(ArrayBlockingQueue. 256 false)`)
 
     A `java.util.concurrent.BlockingQueue` to use as the executor work queue.
-<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/subscriber.clj#L113-L129">Source</a></sub></p>
+<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/subscriber.clj#L115-L131">Source</a></sub></p>
 
 -----
 # <a name="muutos.trust-manager">muutos.trust-manager</a>
