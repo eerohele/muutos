@@ -285,21 +285,19 @@
         flush-lsn
         (fn []
           (locking flush-lock
-            (try
-              (let [{:keys [lsn-to-flush]}
-                    (swap! lsn-flush-state
-                      (fn [{:keys [unflushed-lsn flushed-lsn] :as state}]
-                        ;; If there's no unflushed lsn, send the last flushed LSN
-                        ;; (as a keepalive mechanism).
-                        (let [lsn (or unflushed-lsn flushed-lsn)]
-                          (assoc state :unflushed-lsn nil :lsn-to-flush lsn :flushed-lsn lsn))))]
-                (log :debug ::flush-lsn {:lsn lsn-to-flush})
-                (impl/send-status-update connection lsn-to-flush))
-              (catch Throwable ex
-                (log :error ::flush-lsn-error {:ex (Throwable->map ex)})
-                ;; If the subscriber can't acknowledge the transaction as
-                ;; having been processed, send the exit signal.
-                (deliver exit-signal ex)))))
+            (let [{:keys [unflushed-lsn flushed-lsn]} @lsn-flush-state
+                  ;; If there's no unflushed lsn, send the last flushed LSN
+                  ;; (as a keepalive mechanism).
+                  lsn (or unflushed-lsn flushed-lsn)]
+              (try
+                (log :debug ::flush-lsn {:lsn lsn})
+                (impl/send-status-update connection lsn)
+                (swap! lsn-flush-state assoc :unflushed-lsn nil :flushed-lsn lsn)
+                (catch Throwable ex
+                  (log :error ::flush-lsn-error {:ex (Throwable->map ex)})
+                  ;; If the subscriber can't acknowledge the transaction as
+                  ;; having been processed, send the exit signal.
+                  (deliver exit-signal ex))))))
 
         sql-client (or (:sql-client options)
                      (sql-client/connect
