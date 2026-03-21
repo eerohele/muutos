@@ -7,24 +7,21 @@
 (require '[clojure.repl.deps :as deps])
 (deps/add-lib 'org.clojure/data.json)
 (require '[clojure.data.json :as json])
-(require '[clojure.java.io :as io])
 
 (import '(clojure.lang IPersistentCollection))
-(import '(java.io ByteArrayInputStream ByteArrayOutputStream))
-(import '(java.nio ByteBuffer))
+(import '(java.io CharArrayWriter ByteArrayInputStream InputStreamReader))
+(import '(java.nio ByteBuffer CharBuffer))
+(import '(java.nio.charset StandardCharsets))
 
 (require '[muutos.codec.bin :as bin])
 
 ;; Define a function that encodes a Clojure collection into a JSON byte array.
 (defn encode-jsonb [v]
-  (with-open [baos (ByteArrayOutputStream.)]
+  (with-open [writer (CharArrayWriter.)]
     ;; Prepend JSONB version byte.
-    (.write baos (byte 1))
-
-    (with-open [writer (io/writer baos)]
-      (json/write v writer))
-
-    (ByteBuffer/wrap (.toByteArray baos))))
+    (.write writer (byte 1))
+    (json/write v writer)
+    (.encode StandardCharsets/UTF_8 (CharBuffer/wrap (.toCharArray writer)))))
 
 ;; Tell Muutos to encode any Clojure collection you give as a parameter to
 ;; muutos.sql-client/eq into JSONB binary data.
@@ -41,9 +38,10 @@
   ;; Skip JSONB version byte.
   (assert (= 1 (.get bb)) "Unsupported JSONB version")
 
-  (let [ba (byte-array (.remaining bb))]
-    (.get bb ba)
-    (with-open [reader (io/reader (ByteArrayInputStream. ba))]
+  (let [array (ByteBuffer/.array bb)
+        offset (+ (ByteBuffer/.arrayOffset bb) (ByteBuffer/.position bb))
+        length (ByteBuffer/.remaining bb)]
+    (with-open [reader (InputStreamReader. (ByteArrayInputStream. array offset length))]
       (json/read reader :key-fn keyword))))
 
 (comment
