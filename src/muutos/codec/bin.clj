@@ -249,6 +249,9 @@
 
 (def ^:private ^BigInteger ten-thousand (BigInteger/valueOf 10000))
 
+(def ^:private ^BigInteger/1 biginteger-digits
+  (into-array BigInteger (map #(BigInteger/valueOf %) (range 10000))))
+
 (of-bin 1700 {:name "numeric" :array-oid 1231}
   ;; Treat number of digits as unsigned.
   ;;
@@ -260,20 +263,18 @@
             sign (int16 bb)
             decimal-scale (int16 bb)
             exponent (* (- (inc first-digit-weight) len) 4)
-
-            ;; TODO: Operating on a BigInteger in a hot loop is very slow. To
-            ;; optimize, stay with longs until it's necessary to go BigInteger.
             ^BigInteger num (loop [i 0 num BigInteger/ZERO]
                               (if (= i len)
                                 (cond-> num (= 0x4000 sign) BigInteger/.negate)
-                                (let [base-10000-digit (int16 bb)
-                                      digit (BigInteger/valueOf base-10000-digit)
-                                      base (.pow ten-thousand (- len i 1))]
-                                  (recur (inc i) (BigInteger/.add num (BigInteger/.multiply base digit))))))]
+                                (let [biginteger-digit (aget biginteger-digits (int16 bb))]
+                                  (recur (inc i)
+                                    (-> num
+                                      (BigInteger/.multiply ten-thousand)
+                                      (BigInteger/.add biginteger-digit))))))]
         (->
           (BigDecimal. num)
           (BigDecimal/.scaleByPowerOfTen exponent)
-          (BigDecimal/.setScale decimal-scale RoundingMode/DOWN))))))
+          (BigDecimal/.setScale decimal-scale RoundingMode/UNNECESSARY))))))
 
 (defn ^:private decode-column [^ByteBuffer bb]
   (let [oid (int32 bb)
