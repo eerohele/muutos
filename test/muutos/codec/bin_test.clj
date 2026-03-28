@@ -10,8 +10,7 @@
   (:import (java.net Inet4Address Inet6Address)
            (java.nio ByteBuffer)
            (java.nio.charset StandardCharsets)
-           (muutos.type Box Circle Inet Line LineSegment LogSequenceNumber Path Point Polygon Range)
-           (org.postgresql.util ByteConverter)))
+           (muutos.type Box Circle Inet Line LineSegment LogSequenceNumber Path Point Polygon Range)))
 
 (set! *warn-on-reflection* true)
 
@@ -133,11 +132,6 @@
 (comment
   (bin/decode 18 (bin/encode \A))
   ,,,)
-
-(extend-protocol bin/Parameter
-  BigDecimal
-  (encode [this]
-    (ByteBuffer/wrap (ByteConverter/numeric this))))
 
 (defn ^:private encode-record [m]
   (let [cnt (count m)

@@ -530,9 +530,39 @@
 
   BigDecimal
   (encode [this]
-    ;; TODO
-    (anomaly! (format "Not implemented: %s" (-> this class .getName)) ::anomalies/unsupported
-      {:class (class this)}))
+    (let [sign (if (neg? (BigDecimal/.signum this)) 0x4000 0x0000)]
+      (if (BigDecimal/.equals BigDecimal/ZERO this)
+        (-> (ByteBuffer/allocate (+ 2 2 2 2))
+          (.putShort (short 0))
+          (.putShort (short 0))
+          (.putShort (short sign))
+          (.putShort (short 0))
+          (.flip))
+        (let [dscale (BigDecimal/.scale this)
+              integer-digit-count (- (BigDecimal/.precision this) dscale)
+              first-digit-weight (dec (^[int int] Math/ceilDiv integer-digit-count 4))
+              ;; The number of zeroes we need to pad the fractional part with.
+              fractional-pad (mod (- dscale) 4)
+              abs-unscaled-value (-> this BigDecimal/.unscaledValue BigInteger/.abs)
+              ;; The number padded with the requisite number of zeroes on the
+              ;; right.
+              padded-number (BigInteger/.multiply abs-unscaled-value (BigInteger/.pow BigInteger/TEN fractional-pad))
+              ;; Split the padded integer into groups of max. four digits each.
+              digits (loop [n padded-number digits []]
+                       (let [ary (BigInteger/.divideAndRemainder n ten-thousand)
+                             quotient (aget ary 0)
+                             remainder (aget ary 1)]
+                         (if (BigInteger/.equals BigInteger/ZERO quotient)
+                           (conj digits remainder)
+                           (recur quotient (conj digits remainder)))))
+              ndigits (count digits)
+              bb (-> (ByteBuffer/allocate (+ 2 2 2 2 (* ndigits 2)))
+                   (.putShort (short ndigits))
+                   (.putShort (short first-digit-weight))
+                   (.putShort (short sign))
+                   (.putShort (short dscale)))]
+          (run! (fn [digit] (.putShort bb (short digit))) (rseq digits))
+          (ByteBuffer/.flip bb)))))
 
   Inet
   (encode [{:keys [address type netmask]}]

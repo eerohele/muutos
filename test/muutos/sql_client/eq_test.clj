@@ -299,6 +299,72 @@
     (is (same? 0.123M
           (eq1 pg "n" ["SELECT .123::numeric AS n"])))
 
+    (is (same? 0M
+          (eq1 pg "n" ["SELECT $1 AS n" 0M])))
+
+    (is (same? -0M
+          (eq1 pg "n" ["SELECT $1 AS n" -0M])))
+
+    (is (same? 0.0M
+          (eq1 pg "n" ["SELECT $1 AS n" 0.0M])))
+
+    (is (same? -0.0M
+          (eq1 pg "n" ["SELECT $1 AS n" -0.0M])))
+
+    (is (same? 1M
+          (eq1 pg "n" ["SELECT $1 AS n" 1M])))
+
+    (is (same? -1M
+          (eq1 pg "n" ["SELECT $1 AS n" -1M])))
+
+    (is (same? 1.0M
+          (eq1 pg "n" ["SELECT $1 AS n" 1.0M])))
+
+    (is (same? -1.0M
+          (eq1 pg "n" ["SELECT $1 AS n" -1.0M])))
+
+    (is (same? 0.1M
+          (eq1 pg "n" ["SELECT $1 AS n" 0.1M])))
+
+    (is (same? -0.1M
+          (eq1 pg "n" ["SELECT $1 AS n" -0.1M])))
+
+    (is (same? 1.2M
+          (eq1 pg "n" ["SELECT $1 AS n" 1.2M])))
+
+    (is (same? -1.2M
+          (eq1 pg "n" ["SELECT $1 AS n" -1.2M])))
+
+    (is (same? 1.23M
+          (eq1 pg "n" ["SELECT $1 AS n" 1.23M])))
+
+    (is (same? -1.23M
+          (eq1 pg "n" ["SELECT $1 AS n" -1.23M])))
+
+    (is (same? 1.234M
+          (eq1 pg "n" ["SELECT $1 AS n" 1.234M])))
+
+    (is (same? -1.234M
+          (eq1 pg "n" ["SELECT $1 AS n" -1.234M])))
+
+    (is (same? 1.2345M
+          (eq1 pg "n" ["SELECT $1 AS n" 1.2345M])))
+
+    (is (same? -1.2345M
+          (eq1 pg "n" ["SELECT $1 AS n" -1.2345M])))
+
+    (is (same? 1.23456M
+          (eq1 pg "n" ["SELECT $1 AS n" 1.23456M])))
+
+    (is (same? -1.23456M
+          (eq1 pg "n" ["SELECT $1 AS n" -1.23456M])))
+
+    (is (same? 1189986904279772361191.335439478966012609400022483M
+          (eq1 pg "n" ["SELECT $1 AS n" 1189986904279772361191.335439478966012609400022483M])))
+
+    (is (same? -1189986904279772361191.335439478966012609400022483M
+          (eq1 pg "n" ["SELECT $1 AS n" -1189986904279772361191.335439478966012609400022483M])))
+
     (let [bd (rand-bigdec 1000 1000)]
       (is (same? bd
             (eq1 pg "n" [(format "SELECT %s::numeric(1000, 1000) AS n" bd)]))))
