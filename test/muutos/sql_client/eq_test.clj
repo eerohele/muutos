@@ -584,19 +584,19 @@
       (is (= [{"numrange" (Range. 10.0M true 20.0M false false)}]
             (eq pg ["SELECT numrange(10.0::numeric, 20.0::numeric)"])))
 
-      (is (= [{"numrange" (Range. 0M true 0M false false)}]
+      (is (= [{"numrange" (Range. 0M true 1M false false)}]
             (eq pg ["SELECT numrange(0::numeric, 1::numeric)"])))
 
-      (is (= [{"numrange" (Range. 0M true 0M true false)}]
+      (is (= [{"numrange" (Range. 0M true 1M true false)}]
             (eq pg ["SELECT numrange(0::numeric, 1::numeric, '[]')"])))
 
-      (is (= [{"numrange" (Range. 0M false 0M true false)}]
+      (is (= [{"numrange" (Range. 0M false 1M true false)}]
             (eq pg ["SELECT numrange(0::numeric, 1::numeric, '(]')"])))
 
-      (is (= [{"numrange" (Range. 0M true 0M false false)}]
+      (is (= [{"numrange" (Range. 0M true 1M false false)}]
             (eq pg ["SELECT numrange(0::numeric, 1::numeric, '[)')"])))
 
-      (is (= [{"numrange" (Range. 0M false 0M false false)}]
+      (is (= [{"numrange" (Range. 0M false 1M false false)}]
             (eq pg ["SELECT numrange(0::numeric, 1::numeric, '()')"]))))
 
     (let [tsrange (Range.

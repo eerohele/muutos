@@ -258,7 +258,11 @@
   ;; Per https://github.com/pgjdbc/pgjdbc/blob/0a88ea425e86dce691a96d6aa7023c20ac887b98/pgjdbc/src/main/java/org/postgresql/util/ByteConverter.java#L134C48-L134C54.
   (let [len (bit-and (int16 bb) 0xFFFF)]
     (if (zero? len)
-      BigDecimal/ZERO
+      (do
+        ;; Discard the remaining weight, sign, and dscale shorts from the
+        ;; ByteBuffer.
+        (ByteBuffer/.position bb (+ (ByteBuffer/.position bb) (* 3 2)))
+        BigDecimal/ZERO)
       (let [first-digit-weight (int16 bb)
             sign (int16 bb)
             decimal-scale (int16 bb)
