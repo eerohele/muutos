@@ -17,7 +17,7 @@
   (memoize (fn [opts] (tc/create opts))))
 
 (defn start
-  [container]
+  ^AutoCloseable [container]
   (let [server (let [container (tc/start! container)]
                  (reify
                    Server
