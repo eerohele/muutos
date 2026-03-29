@@ -3,6 +3,26 @@
 All notable changes to this project will be documented in this file. This change log follows the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
 ## UNRELEASED
+- Optimize SQL client by improving buffering
+
+- Implement encoding of `BigDecimal` to PostgreSQL `NUMERIC`
+
+  You can now use `BigDecimal` values in SQL queries. For example:
+
+  ```clojure
+  user=> (eq pg ["SELECT $1 AS n" 1.2345M])
+  [{"n" 1.2345M}]
+  ```
+
+- Fix `NUMERIC` zero decoding
+
+  Prior to this fix, the decoding of `NUMERIC` zeroes had a bug where Muutos neglected to discard the remaining data in the buffer after determining that
+  the value is zero. This bug affected at least the decoding of numeric zeroes in PostgreSQL ranges.
+
+- Optimize `NUMERIC` decoding
+
+  Muutos now decodes `NUMERIC` values rougly 2-3x faster.
+
 - Fix race condition when creating SQL client simultaneously from multiple
   threads
 
@@ -18,7 +38,7 @@ All notable changes to this project will be documented in this file. This change
 
 - Fix potential hang when a `SocketException` occurred during subscriber startup
 
-- Optimize SQL client by improving buffering
+- Add connection pooling example REPL session (see `examples/004_pool.repl`).
 
 ## 2025-12-18
 - Fix integer overflow when converting log sequence numbers to hex strings
