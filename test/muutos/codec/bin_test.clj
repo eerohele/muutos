@@ -1,6 +1,5 @@
 (ns muutos.codec.bin-test
-  (:require [clojure.data.json :as json]
-            [clojure.test :refer [deftest is]]
+  (:require [clojure.test :refer [deftest is]]
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as prop]
             [clojure.test.check.clojure-test :refer [defspec]]
