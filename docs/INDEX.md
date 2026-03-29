@@ -911,7 +911,7 @@ In this table, "B" stands for binary, and "T" stands for text.
 | 1266  | `timetz`       | [`OffsetTime`][java.time.OffsetTime]                            | ✓        | ✓         | ✓         |
 | 1560  | `bit`          | [`String`][java.lang.String]                                    | ✗        | ✗         | ✓         |                            | ✓        | [✗]     | ✓         |
 | 1562  | `varbit`       | [`String`][java.lang.String]                                    | ✗        | ✗         | ✓         |
-| 1700  | `numeric`      | [`BigDecimal`][java.math.BigDecimal]                            | ✓        | ✗         | ✓         |
+| 1700  | `numeric`      | [`BigDecimal`][java.math.BigDecimal]                            | ✓        | ✓         | ✓         |
 | 2249  | `record`       | [`IPersistentMap`][clojure.lang.IPersistentMap]                 | ✓        | ✗         | ✗         |
 | 2278  | `void`         | `null`                                                          | ✓        | ✗         | ✓         |
 | 2950  | `uuid`         | [`UUID`][java.util.UUID]                                        | ✓        | ✓         | ✓         |
