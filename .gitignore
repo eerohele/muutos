@@ -5,5 +5,4 @@ dev/jks/*.jks
 .clj-kondo/.cache
 dev/sql/*pagila*.sql
 .clerk
-repl/
 target/

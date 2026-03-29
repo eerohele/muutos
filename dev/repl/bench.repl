@@ -1,0 +1,98 @@
+(require '[clojure.repl.deps :as deps])
+
+(deps/add-libs '{com.github.enragedginger/clj-pool-party {:mvn/version "0.2.0"}
+                 criterium/criterium {:mvn/version "0.4.6"}})
+
+(deps/add-libs '{com.github.seancorfield/next.jdbc {:mvn/version "1.3.1093"}
+                 org.postgresql/postgresql {:mvn/version "42.7.10"}
+                 com.zaxxer/HikariCP {:mvn/version "7.0.2"}})
+
+(require '[next.jdbc :as jdbc])
+(require '[next.jdbc.connection :as connection])
+(require '[muutos.test.concurrency :refer [concurrently]])
+(require '[criterium.core :refer [quick-bench]])
+
+(import '(com.zaxxer.hikari HikariDataSource))
+
+(def q-film-by-id
+  "SELECT release_year,
+          length,
+          TRIM(language.name) AS language,
+          title,
+          rating,
+          description,
+          rental_rate,
+          replacement_cost
+   FROM film
+   JOIN language ON language.language_id = film.language_id
+   WHERE film.film_id = $1
+   LIMIT 1")
+
+(defmacro ->jdbc [q]
+  `(clojure.string/replace ~q #"(\$\d+)" "?"))
+
+(comment (->jdbc q-film-by-id) ,,,)
+
+(def jdbc-pool
+  (connection/->pool HikariDataSource
+    {:dbtype "postgres" :dbname "postgres" :username "postgres" :password "postgres"}))
+
+(quick-bench
+  (concurrently {:threads 1000}
+    (assert (= [{:film/release_year 2008
+                 :film/length 170
+                 :language "German"
+                 :film/title "ARTIST COLDBLOODED"
+                 :film/rating "NC-17"
+                 :film/description "A Stunning Reflection of a Robot And a Moose who must Challenge a Woman in California"
+                 :film/rental_rate 2.99M
+                 :film/replacement_cost 10.99M}]
+              (jdbc/execute! jdbc-pool [(->jdbc q-film-by-id) 42])))))
+;; Execution time mean : 22.269118 ms
+
+(deps/add-libs '{com.github.igrishaev/pg2-core {:mvn/version "0.1.48"}})
+
+(require '[pg.core :as pg])
+(require '[pg.oid :as oid])
+
+(def config
+  {:host "127.0.0.1"
+   :port 5432
+   :user "postgres"
+   :password "postgres"
+   :database "postgres"
+   :binary-encode? true
+   :binary-decode? true
+   :pool-max-size 10})
+
+(def pg-conn (pg/connect config))
+
+;; pg2 without connection pooling
+(quick-bench
+  (concurrently {:threads 1000}
+    (assert (= [{:release_year 2008
+                 :length 170
+                 :language "German"
+                 :title "ARTIST COLDBLOODED"
+                 :rating "NC-17"
+                 :description "A Stunning Reflection of a Robot And a Moose who must Challenge a Woman in California"
+                 :rental_rate 2.99M
+                 :replacement_cost 10.99M}]
+              (pg/execute pg-conn q-film-by-id {:params [42] :oids [oid/int8]})))))
+;; Execution time mean : 90.751762 ms
+
+;; pg2 with connection pooling
+(pg/with-pool [pg-pool config]
+  (quick-bench
+    (concurrently {:threads 1000}
+      (pg/with-connection [conn pg-pool]
+        (assert (= [{:release_year 2008
+                     :length 170
+                     :language "German"
+                     :title "ARTIST COLDBLOODED"
+                     :rating "NC-17"
+                     :description "A Stunning Reflection of a Robot And a Moose who must Challenge a Woman in California"
+                     :rental_rate 2.99M
+                     :replacement_cost 10.99M}]
+                  (pg/execute conn q-film-by-id {:params [42] :oids [oid/int8]})))))))
+;; Execution time mean : 36.411568 ms
