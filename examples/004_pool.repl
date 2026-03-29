@@ -1,0 +1,72 @@
+;; A REPL session that demonstrates how to use the clj-pool-party object
+;; pooling library with the Muutos SQL client.
+(set! *warn-on-reflection* true)
+
+(import '(java.lang AutoCloseable))
+
+(require '[clojure.repl.deps :as deps])
+
+;; Bring in connection pooling library (clj-pool-party) and benchmarking
+;; library (Criterium).
+(deps/add-libs '{com.github.enragedginger/clj-pool-party {:mvn/version "0.2.0"}
+                 criterium/criterium {:mvn/version "0.4.6"}})
+
+(require '[com.github.enragedginger.clj-pool-party.core :as pool])
+(require '[criterium.core :refer [quick-bench]])
+(require '[muutos.sql-client :as sql])
+
+;; Bring in helper macro that executes body under maximum contention.
+(require '[muutos.test.concurrency :refer [concurrently]])
+
+;; The SQL query we'll use for benchmarking.
+(def q-film-by-id
+  "SELECT release_year,
+          length,
+          TRIM(language.name) AS language,
+          title,
+          rating,
+          description,
+          rental_rate,
+          replacement_cost
+   FROM film
+   JOIN language ON language.language_id = film.language_id
+   WHERE film.film_id = $1
+   LIMIT 1")
+
+(def pool
+  ;; Create a connection pool with ten maximum connections.
+  (pool/build-pool (fn [] (sql/connect)) 10 {:close-fn (fn [pg] (AutoCloseable/.close pg))}))
+
+(comment (pool/evict-all pool) ,,,)
+
+(def pg (sql/connect))
+
+;; Without connection pooling
+(quick-bench
+  (concurrently {:threads 1000}
+    (assert (= [{"release_year" 2008
+                 "length" 170
+                 "language" "German"
+                 "title" "ARTIST COLDBLOODED"
+                 "rating" "NC-17"
+                 "description" "A Stunning Reflection of a Robot And a Moose who must Challenge a Woman in California"
+                 "rental_rate" 2.99M
+                 "replacement_cost" 10.99M}]
+              (sql/eq pg [q-film-by-id 42])))))
+;; Execution time mean : 90.876394 ms
+
+;; With connection pooling
+(quick-bench
+  (concurrently {:threads 1000}
+    (pool/with-object pool
+      (fn [pg]
+        (assert (= [{"release_year" 2008
+                     "length" 170
+                     "language" "German"
+                     "title" "ARTIST COLDBLOODED"
+                     "rating" "NC-17"
+                     "description" "A Stunning Reflection of a Robot And a Moose who must Challenge a Woman in California"
+                     "rental_rate" 2.99M
+                     "replacement_cost" 10.99M}]
+                  (sql/eq pg [q-film-by-id 42])))))))
+;; Execution time mean : 29.879964 ms
