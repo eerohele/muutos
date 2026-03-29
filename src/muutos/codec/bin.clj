@@ -125,7 +125,7 @@
 
 (of-bin 17 {:name "bytea" :array-oid 1001}
   (let [ba (byte-array (.remaining bb))]
-    (.get (.slice bb) ba)
+    (.get bb ba)
     ba))
 
 (of-bin 18 {:name "char" :array-oid 1002}

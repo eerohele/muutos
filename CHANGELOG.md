@@ -19,6 +19,12 @@ All notable changes to this project will be documented in this file. This change
   Prior to this fix, the decoding of `NUMERIC` zeroes had a bug where Muutos neglected to discard the remaining data in the buffer after determining that
   the value is zero. This bug affected at least the decoding of numeric zeroes in PostgreSQL ranges.
 
+- Fix byte array decoding
+
+  Same as above, but with the PostgreSQL `bytea` data type.
+
+  To prevent future bugs like this, Muutos now has a generative test that checks that all decoders consume the entire `ByteBuffer` they're given.
+
 - Optimize `NUMERIC` decoding
 
   Muutos now decodes `NUMERIC` values rougly 2-3x faster.

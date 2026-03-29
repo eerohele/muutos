@@ -1,5 +1,6 @@
 (ns muutos.codec.bin-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [clojure.data.json :as json]
+            [clojure.test :refer [deftest is]]
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as prop]
             [clojure.test.check.clojure-test :refer [defspec]]
@@ -58,6 +59,8 @@
               (Range. lower-bound lower-bound-inclusive? upper-bound upper-bound-inclusive? contain-empty?))
     (gen/tuple gen gen/boolean gen gen/boolean gen/boolean)))
 
+(def gen-int4 (gen/fmap int (gen/choose Integer/MIN_VALUE Integer/MAX_VALUE)))
+
 (defn gen-for
   [^long oid]
   (case oid
@@ -67,9 +70,15 @@
     19 gen/string
     20 gen/large-integer
     21 (gen/fmap short (gen/choose Short/MIN_VALUE Short/MAX_VALUE))
-    23 (gen/fmap int (gen/choose Integer/MIN_VALUE Integer/MAX_VALUE))
+    22 (gen/fmap short-array (gen/vector (gen/fmap short (gen/choose Short/MIN_VALUE Short/MAX_VALUE))))
+    23 gen-int4
+    24 gen-int4
     25 gen/string
+    26 gen-int4
+    28 gen-int4
+    30 (gen/fmap int-array (gen/vector gen-int4))
     114 (gen/one-of [(gen/map gen/any gen/any) (gen/vector gen/any)])
+    194 gen/string
     600 gen-point
     601 (gen/fmap (fn [[point-1 point-2]] (LineSegment. point-1 point-2)) (gen/tuple gen-point gen-point))
     602 (gen/fmap (fn [[open? points]] (Path. open? points)) (gen/tuple gen/boolean (gen/vector gen-point)))
@@ -81,6 +90,7 @@
     869 gen-inet
     700 specs.gen/float
     701 specs.gen/double
+    705 (gen/return nil)
     718 (gen/fmap (fn [[x y r]] (Circle. x y r)) (gen/tuple gen-finite-double gen-finite-double gen-finite-double))
     1042 gen/string
     1043 gen/string
@@ -102,6 +112,7 @@
     1021 (gen/fmap float-array (gen/vector (gen-for 700)))
     1022 (gen/fmap float-array (gen/vector (gen-for 701)))
     1700 gen-bigdecimal
+    2278 (gen/return nil)
     3904 (gen-range (gen-for 23))
     3906 (gen-range (gen-for 1700))
     3908 (gen-range (gen-for 1114))
@@ -278,3 +289,35 @@
 (defspec round-trip-tstzrange 100000 (round-trip-prop 3910))
 (defspec round-trip-daterange 100000 (round-trip-prop 3912))
 (defspec round-trip-int8range 100000 (round-trip-prop 3926))
+
+(def gen-supported-oid
+  (gen/elements
+    (disj
+      (into (sorted-set)
+        (comp
+          (map val)
+          (keep (comp :oid meta)))
+        (ns-interns 'muutos.codec.bin))
+      114  #_json
+      705  #_unknown
+      2278 #_void
+      2249 #_record
+      3614 #_tsvector
+      3802 #_jsonb)))
+
+(comment (gen/generate gen-supported-oid) ,,,)
+
+;; Check that every decoder consumes the entire ByteBuffer.
+(defspec consume-buffer 250000
+  ;; Pick a random OID whose data type Muutos can decode.
+  (prop/for-all [oid gen-supported-oid]
+    ;; Generate an instance of the data type Muutos decodes the OID to.
+    (let [in (gen/generate (gen-for oid))
+          ;; Encode the value into its PostgreSQL binary representation.
+          bb (bin/encode in)]
+
+      ;; Decode the value back to the JVM data type.
+      (bin/decode (int oid) bb)
+      
+      ;; Check that Muutos has consumed the entire ByteBuffer.
+      (= (ByteBuffer/.position bb) (ByteBuffer/.limit bb) (ByteBuffer/.capacity bb)))))
