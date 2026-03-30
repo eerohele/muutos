@@ -1,7 +1,6 @@
 (require '[clojure.repl.deps :as deps])
 
-(deps/add-libs '{com.github.enragedginger/clj-pool-party {:mvn/version "0.2.0"}
-                 criterium/criterium {:mvn/version "0.4.6"}})
+(deps/add-libs '{criterium/criterium {:mvn/version "0.4.6"}})
 
 (deps/add-libs '{com.github.seancorfield/next.jdbc {:mvn/version "1.3.1093"}
                  org.postgresql/postgresql {:mvn/version "42.7.10"}
