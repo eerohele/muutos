@@ -645,11 +645,7 @@ nil
 ## Working with SQL
 
 Muutos includes a SQL client that's suitable for setting up logical
-replication, diagnostics, debugging, and low-throughput scenarios.
-
-The SQL client does not support pooling connections, and is therefore not suitable for high-throughput use cases. If you need a high-throughput PostgreSQL client, consider [pg2](https://github.com/igrishaev/pg2) or [next.jdbc](https://github.com/seancorfield/next-jdbc).
-
-Additionally, Muutos does not automatically prepare statements like the [PostgreSQL JDBC Driver](https://jdbc.postgresql.org/documentation/server-prepare/#server-prepared-statements) does. This means repeated executions of the same extended query (using `muutos.sql-client/eq`) is slower than with JDBC.
+replication, diagnostics, debugging, and as a general-purpose SQL client.
 
 ### Connecting to a PostgreSQL server
 
@@ -778,6 +774,12 @@ user=> (eq pg ["SELECT typname, oid, typarray FROM pg_catalog.pg_type LIMIT 5"])
  {"typname" "name" "oid" 19 "typarray" 1003}
  {"typname" "int8" "oid" 20 "typarray" 1016}]
 ```
+
+### Using connection pooling
+
+Muutos does not have a connection pool implementation.
+
+If you need connection pooling, you can use Muutos with a general-purpose connection pool, such as [clj-pool-party](https://github.com/enragedginger/clj-pool-party). See [`004_pool.repl`](/examples/004_pool.repl) for an example on how to use Muutos with clj-pool-party.
 
 ### Closing the SQL client
 
