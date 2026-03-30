@@ -107,8 +107,8 @@
       (cond-> msg
         true (dissoc :new-tuple :oid)
         new-tuple (assoc :new-row (data-row/parse attr-defs new-tuple
-                                    :key-fn key-fn
-                                    :format :bin))
+                                    {:key-fn key-fn
+                                     :format :bin}))
         schema (assoc :schema schema)
         table (assoc :table table)))
     state))
@@ -121,11 +121,11 @@
         true (dissoc :new-tuple :old-tuple :oid)
         keys (assoc :keys keys)
         new-tuple (assoc :new-row (data-row/parse attr-defs new-tuple
-                                    :key-fn key-fn
-                                    :format :bin))
+                                    {:key-fn key-fn
+                                     :format :bin}))
         old-tuple (assoc :old-row (data-row/parse attr-defs old-tuple
-                                    :key-fn key-fn
-                                    :format :bin))
+                                    {:key-fn key-fn
+                                     :format :bin}))
         schema (assoc :schema schema)
         table (assoc :table table)))
     state))
@@ -139,8 +139,8 @@
         keys (assoc :keys keys)
         old-tuple (assoc :old-row
                     (data-row/parse attr-defs old-tuple
-                      :key-fn key-fn
-                      :format :bin))
+                      {:key-fn key-fn
+                       :format :bin}))
         schema (assoc :schema schema)
         table (assoc :table table)))
     state))

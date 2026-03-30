@@ -258,7 +258,7 @@
                                       :data-row
                                       (let [attrs (row-description :attrs)
                                             tuples (response :tuple)
-                                            data-row (data-row/parse attrs tuples :query-fn (fn [qvec] (eq (client/aux client) qvec)) :key-fn key-fn :format :bin)]
+                                            data-row (data-row/parse attrs tuples {:query-fn (fn [qvec] (eq (client/aux client) qvec)) :key-fn key-fn :format :bin})]
                                         (recur command-complete row-description (conj! data data-row) ex)))))
                                 (catch Throwable ex
                                   ;; If the event loop throws e.g. an OutOfMemoryError, let it crash to
@@ -359,7 +359,7 @@
                :data-row
                (let [attrs (row-description :attrs)
                      tuples (response :tuple)
-                     data-row (data-row/parse attrs tuples :query-fn (fn [qvec] (eq (client/aux client) qvec)) :key-fn key-fn :format :txt)]
+                     data-row (data-row/parse attrs tuples {:query-fn (fn [qvec] (eq (client/aux client) qvec)) :key-fn key-fn :format :txt})]
                  (recur command-complete row-description (conj! data data-row) ex)))))
          (catch Throwable ex
            ;; If the event loop throws e.g. an OutOfMemoryError, let it crash to
