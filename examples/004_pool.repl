@@ -41,7 +41,7 @@
 
 (def pg (sql/connect))
 
-;; Without connection pooling
+;; Without connection pooling:
 (quick-bench
   (concurrently {:threads 1000}
     (assert (= [{"release_year" 2008
@@ -55,7 +55,7 @@
               (sql/eq pg [q-film-by-id 42])))))
 ;; Execution time mean : 90.876394 ms
 
-;; With connection pooling
+;; With connection pooling:
 (quick-bench
   (concurrently {:threads 1000}
     (pool/with-object pool
