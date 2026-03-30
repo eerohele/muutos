@@ -384,50 +384,60 @@
     {:type :data-row
      :tuple tuple}))
 
-(defn ^:private parse-rows
-  [tag n]
-  (some-> tag (string/split #"\s") (nth n) (parse-long)))
+(defn ^:private last-token-long
+  [tag]
+  (let [i (String/.lastIndexOf tag (int \space))]
+    (when (pos? i)
+      (parse-long (String/.substring tag (inc i))))))
 
 (defn parse-command-tag
   [tag]
   (cond
     (string/starts-with? tag "INSERT")
-    {:command "INSERT"
-     :rows (parse-rows tag 2)}
+    {:type :command-complete
+     :command "INSERT"
+     :rows (last-token-long tag)}
 
     (string/starts-with? tag "DELETE")
-    {:command "DELETE"
-     :rows (parse-rows tag 1)}
+    {:type :command-complete
+     :command "DELETE"
+     :rows (last-token-long tag)}
 
     (string/starts-with? tag "UPDATE")
-    {:command "UPDATE"
-     :rows (parse-rows tag 1)}
+    {:type :command-complete
+     :command "UPDATE"
+     :rows (last-token-long tag)}
 
     (string/starts-with? tag "MERGE")
-    {:command "MERGE"
-     :rows (parse-rows tag 1)}
+    {:type :command-complete
+     :command "MERGE"
+     :rows (last-token-long tag)}
 
     (string/starts-with? tag "SELECT")
-    {:command "SELECT"
-     :rows (parse-rows tag 1)}
+    {:type :command-complete
+     :command "SELECT"
+     :rows (last-token-long tag)}
 
     (string/starts-with? tag "MOVE")
-    {:command "MOVE"
-     :rows (parse-rows tag 1)}
+    {:type :command-complete
+     :command "MOVE"
+     :rows (last-token-long tag)}
 
     (string/starts-with? tag "FETCH")
-    {:command "FETCH"
-     :rows (parse-rows tag 1)}
+    {:type :command-complete
+     :command "FETCH"
+     :rows (last-token-long tag)}
 
     (string/starts-with? tag "COPY")
-    {:command "COPY"
-     :rows (parse-rows tag 1)}
+    {:type :command-complete
+     :command "COPY"
+     :rows (last-token-long tag)}
 
-    :else {:command tag}))
+    :else {:type :command-complete
+           :command tag}))
 
 (defn decode-command-complete [^ByteBuffer bb]
-  (let [tag (-> bb decode-cstring parse-command-tag)]
-    (assoc tag :type :command-complete)))
+  (-> bb decode-cstring parse-command-tag))
 
 (defn error-type
   "https://www.postgresql.org/docs/current/protocol-error-fields.html"
