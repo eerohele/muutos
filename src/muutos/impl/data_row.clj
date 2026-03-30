@@ -43,9 +43,8 @@
         (throw ex)))))
 
 (defn parse
-  [attrs tuple &
-   {:keys [key-fn format query-fn]
-    :or {format :txt}}]
+  [attrs tuple {:keys [key-fn format query-fn]
+                :or {format :txt}}]
   (let [^Iterator attr-defs-it (.iterator ^Iterable attrs)
         ^Iterator vals-it (.iterator ^Iterable tuple)]
     (loop [m (-> attrs count empty-map transient)]
