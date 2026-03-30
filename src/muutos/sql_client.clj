@@ -157,8 +157,6 @@
 
     (with-meta client (assoc session :options (select-keys options [:key-fn])))))
 
-(def ^:private unnamed-statement "")
-(def ^:private unnamed-portal "")
 
 (defn eq
   "Given a client and any number of query vectors, run an extended query.
@@ -171,10 +169,10 @@
                       (let [oids (mapv (fn [parameter] (client/oid client parameter)) parameters)
                             parameters (mapv bin/encode parameters)]
                         ;; FIXME: What if encoding any of these fail? Especially ones user input can affect?
-                        (client/enqueue client {:type :parse :oids oids :statement unnamed-statement :query q})
-                        (client/enqueue client {:type :describe :target :statement :name unnamed-statement})
-                        (client/enqueue client {:type :bind :statement unnamed-statement :portal unnamed-portal :parameters parameters})
-                        (client/enqueue client {:type :execute :portal unnamed-portal :max-rows 0})
+                        (client/enqueue client {:type :parse :oids oids :query q})
+                        (client/enqueue client {:type :describe :target :statement})
+                        (client/enqueue client {:type :bind :parameters parameters})
+                        (client/enqueue client {:type :execute :max-rows 0})
                         (recur (inc n) (rest qs)))
                       n))]
 

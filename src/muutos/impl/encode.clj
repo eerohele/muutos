@@ -9,6 +9,8 @@
 
 (defmulti encode :type)
 
+(def ^:private ^byte/1 empty-byte-array (byte-array 0))
+
 (defn ^:private protocol-version
   [^long major ^long minor]
   (+ (bit-shift-left major 16) (bit-shift-left minor 16)))
@@ -86,14 +88,14 @@
   (.duplicate sync))
 
 (defmethod encode :bind
-  [{:keys [^String statement ^String portal parameters]}]
-  (let [statement (charset/byte-buffer statement)
-        portal (charset/byte-buffer portal)
-        parameter-lengths (mapv (fn [^ByteBuffer bb] (or (some-> bb .capacity) 0)) parameters)
-        parameter-count (count parameters)
-        len (+ 4
-              (.remaining portal) 1
-              (.remaining statement) 1
+  [{:keys [parameters]}]
+  (let [parameter-count (count parameters)
+        len (+
+              4
+              0 ; unnamed portal
+              1
+              0 ; unnamed statement
+              1
               2
               (* 2 parameter-count)
               2
@@ -110,9 +112,9 @@
         bb (.. (ByteBuffer/allocate (+ 1 ^long len))
              (put (byte #_\B 66))
              (putInt len)
-             (put ^ByteBuffer portal)
+             (put ^byte/1 empty-byte-array)
              (put (byte 0))
-             (put ^ByteBuffer statement)
+             (put ^byte/1 empty-byte-array)
              (put (byte 0))
              (putShort (short parameter-count)))]
 
@@ -137,26 +139,24 @@
     (doto bb .flip)))
 
 (defmethod encode :execute
-  [{:keys [^String portal max-rows]}]
-  (let [portal (charset/byte-buffer portal)
-        len (+ 4 (.remaining portal) 1 4)]
+  [{:keys [max-rows]}]
+  (let [len (+ 4 0 #_portal 1 4)]
     (.. (ByteBuffer/allocate (+ 1 len))
       (put (byte #_\E 69))
       (putInt len)
-      (put ^ByteBuffer portal)
+      (put empty-byte-array) ; portal
       (put (byte 0))
       (putInt (int max-rows))
       (flip))))
 
 (defmethod encode :close
-  [{:keys [target ^String name]}]
-  (let [name (charset/byte-buffer name)
-        len (+ 4 1 (.remaining name) 1)]
+  [{:keys [target]}]
+  (let [len (+ 4 1 0 #_portal 1)]
     (.. (ByteBuffer/allocate (+ 1 len))
       (put (byte #_\C 67))
       (putInt len)
       (put (byte (case target :statement #_\S 83 :portal #_\P 80)))
-      (put ^ByteBuffer name)
+      (put empty-byte-array)
       (put (byte 0))
       (flip))))
 
@@ -173,17 +173,15 @@
       (flip))))
 
 (defmethod encode :parse
-  [{:keys [oids ^String statement ^String query]}]
-  (let [statement (charset/byte-buffer statement)
-        query (charset/byte-buffer (or query ""))
-        param-count (count oids)
-        len (+ 4 (.remaining statement) 1 (.remaining query) 1 2 (* 4 param-count))
+  [{:keys [oids ^String query]}]
+  (let [param-count (count oids)
+        len (+ 4 0 1 (String/.length query) 1 2 (* 4 param-count))
         bb (.. (ByteBuffer/allocate (+ 1 len))
              (put (byte #_\P 80))
              (putInt len)
-             (put ^ByteBuffer statement)
+             (put empty-byte-array)
              (put (byte 0))
-             (put ^ByteBuffer query)
+             (put (String/.getBytes query))
              (put (byte 0))
              (putShort (short param-count)))]
 
@@ -196,15 +194,14 @@
     (doto bb .flip)))
 
 (defmethod encode :describe
-  [{:keys [target ^String name]}]
-  (let [name (charset/byte-buffer name)
-        len (+ 4 1 (.remaining name) 1)]
+  [{:keys [target]}]
+  (let [len (+ 4 1 0 #_name 1)]
     (..
       (ByteBuffer/allocate (+ 1 len))
       (put (byte #_\D 68))
       (putInt len)
       (put (byte (case target :statement #_\S 83 :portal #_\P 80)))
-      (put ^ByteBuffer name)
+      (put empty-byte-array)
       (put (byte 0))
       (flip))))
 
