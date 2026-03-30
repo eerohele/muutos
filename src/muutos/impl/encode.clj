@@ -236,12 +236,11 @@
 
 (defmethod encode :simple-query
   [{:keys [^String query]}]
-  (let [bb (charset/byte-buffer query)
-        len (+ 1 4 (.remaining bb) 1)]
+  (let [len (+ 1 4 (String/.length query) 1)]
     (.. (ByteBuffer/allocate len)
       (put (byte 81))
       (putInt (unchecked-dec-int len))
-      (put bb)
+      (put (String/.getBytes query))
       (put (byte 0))
       (flip))))
 
