@@ -44,19 +44,19 @@
       read-bytes
       (anomaly! "EOF reading from socket" ::anomalies/unavailable))))
 
+(defrecord ^:private IO [socket in out])
+
 (defn ^:private io [^Socket socket]
   (let [output-stream (-> socket .getOutputStream BufferedOutputStream.)
         input-stream (-> socket .getInputStream BufferedInputStream.)]
-    {:socket socket
-     :output-stream output-stream
-     :input-stream input-stream}))
+    (IO. socket input-stream output-stream)))
 
 (defn ^:private make [^Socket initial-socket]
   ;; Must store socket state in atom to swap it for an SSLSocket.
   (let [state (atom (io initial-socket))
-        socket (fn [] (-> state deref :socket))
-        input-stream (fn [] (-> state deref :input-stream))
-        output-stream (fn [] (-> state deref :output-stream))
+        socket (fn [] (.socket ^IO @state))
+        input-stream (fn [] (.in ^IO @state))
+        output-stream (fn [] (.out ^IO @state))
         -lock (ReentrantLock.)
         -write (fn [os msg]
                  (let [^ByteBuffer bb (encode/encode msg)
@@ -123,15 +123,16 @@
       AutoCloseable
       (close [this]
         (swap! state
-          (fn [{:keys [socket output-stream] :as state}]
+          (fn [state]
             (try
               (with-lock this
-                (-write output-stream {:type :terminate})
-                (BufferedOutputStream/.flush output-stream))
+                (let [out (.out ^IO state)]
+                  (-write out {:type :terminate})
+                  (BufferedOutputStream/.flush out)))
               ;; The socket is already closed when we attempt to send the
               ;; terminate message; NBD.
               (catch SocketException _))
-            (Socket/.close socket)
+            (Socket/.close (.socket ^IO state))
             state)))
 
       Lockable
