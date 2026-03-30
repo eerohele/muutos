@@ -98,11 +98,16 @@
               (* 2 parameter-count)
               2
               (* 4 parameter-count)
-              (long (reduce + 0 parameter-lengths))
               ;; result columns
               2
               2)
-        bb (.. (ByteBuffer/allocate (+ 1 len))
+        len (loop [i 0 len len]
+              (if (< i parameter-count)
+                (let [parameter (nth parameters i)
+                      ^int capacity (or (some-> parameter ByteBuffer/.capacity) 0)]
+                  (recur (inc i) (+ len capacity)))
+                len))
+        bb (.. (ByteBuffer/allocate (+ 1 ^long len))
              (put (byte #_\B 66))
              (putInt len)
              (put ^ByteBuffer portal)
@@ -116,14 +121,15 @@
 
     (.putShort bb (short parameter-count))
 
-    (run!
-      (fn [x]
-        (if (nil? x)
-          (.putInt bb -1)
-          (do
-            (.putInt bb (.capacity ^ByteBuffer x))
-            (.put bb ^ByteBuffer x))))
-      parameters)
+    (loop [i 0]
+      (when (< i parameter-count)
+        (let [x (nth parameters i)]
+          (if (nil? x)
+            (.putInt bb -1)
+            (do
+              (.putInt bb (.capacity ^ByteBuffer x))
+              (.put bb ^ByteBuffer x))))
+        (recur (inc i))))
 
     (.putShort bb (short 1))
     (.putShort bb (short 1))
