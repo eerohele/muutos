@@ -21,6 +21,22 @@
                               com.cognitect/transcriptor {:mvn/version "0.1.5"}
                               clj-kondo/clj-kondo {:mvn/version "2026.01.19"}}}
 
+           :bench {:extra-deps {com.github.seancorfield/next.jdbc {:mvn/version "1.3.1093"}
+                                org.postgresql/postgresql {:mvn/version "42.7.10"}
+                                criterium/criterium {:mvn/version "0.5.153-ALPHA"}
+                                com.clojure-goes-fast/clj-async-profiler {:mvn/version "2.0.0-beta1"}}
+                   :jvm-opts ["-Djavax.net.ssl.trustStore=dev/jks/dev.jks"
+                              "-Djavax.net.ssl.trustStorePassword=muutos"
+                              "-XX:+UnlockExperimentalVMOptions"
+                              "-XX:+EnableDynamicAgentLoading"
+                              "-XX:CompileCommand=blackhole,criterium.blackhole.Blackhole::consume"
+                              "-Xms2g"
+                              "-Xmx2g"
+                              "-Xss512k"
+                              "-XX:+UseG1GC"
+                              "-Djdk.attach.allowAttachSelf"
+                              "-Dclojure.spec.compile-asserts=false"]}
+
            :demo/k8s {:local/root "demo/k8s"}
 
            :quickdoc {:deps {io.github.borkdude/quickdoc {:git/sha "026b4fab8570853e38c3097fe1f8619abc95b2e0"}}
