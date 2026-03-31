@@ -26,15 +26,14 @@
   "Given a `java.nio.ByteBuffer`, decode a null-terminated string (aka C
   string) from the buffer."
   [^ByteBuffer bb]
-  (let [pos (.position bb)
-        ^long limit (loop [i 0]
-                      (when (.hasRemaining bb)
-                        (let [b (.get bb)]
-                          (if (== 0x00 b)
-                            i
-                            (recur (inc i))))))
-        slice (.slice bb pos limit)]
-    (str (Charset/.decode StandardCharsets/UTF_8 slice))))
+  (let [offset (.position bb)
+        limit (loop [i (int 0)]
+                (when (.hasRemaining bb)
+                  (let [b (.get bb)]
+                    (if (== 0x00 b)
+                      i
+                      (recur (unchecked-inc-int i))))))]
+    (^[byte/1 int int Charset] String/new (.array bb) offset limit StandardCharsets/UTF_8)))
 
 ;; ╔══════════╗
 ;; ║  DECODE  ║
