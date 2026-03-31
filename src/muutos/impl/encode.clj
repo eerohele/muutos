@@ -154,18 +154,6 @@
       (put (byte 0))
       (flip))))
 
-(defmethod encode :close-portal
-  [{:keys [^String name]}]
-  (let [name (charset/byte-buffer name)
-        len (+ 4 1 (.remaining name) 1)]
-    (.. (ByteBuffer/allocate (+ 1 len))
-      (put (byte #_\C 67))
-      (putInt len)
-      (put (byte #_\P 80))
-      (put ^ByteBuffer name)
-      (put (byte 0))
-      (flip))))
-
 (defmethod encode :parse
   [{:keys [oids ^String statement ^String query]}]
   (let [statement (charset/byte-buffer statement)
