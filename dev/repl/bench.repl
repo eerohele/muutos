@@ -17,7 +17,7 @@
    WHERE film.film_id = $1
    LIMIT 1")
 
-(def pg (sql/connect))
+(def pg (sql/connect :key-fn (fn [_ attr-name] (keyword attr-name))))
 
 (bench/bench (sql/eq pg [q-film-by-id 42]) :limit-time-s 30)
 
@@ -26,8 +26,6 @@
     (sql/eq pg [q-film-by-id 42])))
 
 ;; JDBC
-(require '[clojure.repl.deps :as deps])
-
 (require '[next.jdbc :as jdbc])
 
 (def jdbc-conn
