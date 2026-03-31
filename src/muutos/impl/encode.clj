@@ -7,16 +7,13 @@
 (set! *warn-on-reflection* true)
 (set! *unchecked-math* :warn-on-boxed)
 
-(defmulti encode :type)
-
 (def ^:private ^byte/1 empty-byte-array (byte-array 0))
 
 (defn ^:private protocol-version
   [^long major ^long minor]
   (+ (bit-shift-left major 16) (bit-shift-left minor 16)))
 
-(defmethod encode :startup
-  [{:keys [parameters]}]
+(defn encode-startup [{:keys [parameters]}]
   (let [sb (StringBuilder.)]
     (run! (fn [[n v]]
             (.append sb (name n))
@@ -36,7 +33,7 @@
         (put bb)
         (flip)))))
 
-(defmethod encode :sasl-initial-response
+(defn encode-sasl-initial-response
   [{:keys [user ^String mechanism nonce channel-binding]}]
   (let [client-first-message (if channel-binding
                                (format "p=tls-server-end-point,,n=%s,r=%s" user nonce)
@@ -53,7 +50,7 @@
       (put bytes-client-first-message)
       (flip))))
 
-(defmethod encode :sasl-response
+(defn encode-sasl-response
   [{:keys [^String client-final-message]}]
   (let [bb (charset/byte-buffer client-final-message)
         len (+ 4 (.remaining bb))]
@@ -63,15 +60,15 @@
       (put ^ByteBuffer bb)
       (flip))))
 
-(defmethod encode :ssl-request
-  [_]
+(defn encode-ssl-request
+  []
   (.. (ByteBuffer/allocate (+ 4 4))
     (putInt 8)
     (putInt 80877103)
     (flip)))
 
-(defmethod encode :flush
-  [_]
+(defn encode-flush
+  []
   (.. (ByteBuffer/allocate 5)
     (put (byte #_\S 72))
     (putInt 4)
@@ -83,13 +80,13 @@
     (putInt 4)
     (flip)))
 
-(defmethod encode :sync
-  [_]
+(defn encode-sync
+  []
   (.duplicate sync))
 
-(defmethod encode :bind
   [{:keys [parameters]}]
   (let [parameter-count (count parameters)
+(defn encode-bind
         len (+
               4
               0 ; unnamed portal
@@ -138,7 +135,7 @@
 
     (doto bb .flip)))
 
-(defmethod encode :execute
+(defn encode-execute
   [{:keys [max-rows]}]
   (let [len (+ 4 0 #_portal 1 4)]
     (.. (ByteBuffer/allocate (+ 1 len))
@@ -149,7 +146,7 @@
       (putInt (int max-rows))
       (flip))))
 
-(defmethod encode :close
+(defn encode-close
   [{:keys [target]}]
   (let [len (+ 4 1 0 #_portal 1)]
     (.. (ByteBuffer/allocate (+ 1 len))
@@ -160,9 +157,9 @@
       (put (byte 0))
       (flip))))
 
-(defmethod encode :parse
   [{:keys [oids ^String query]}]
   (let [param-count (count oids)
+(defn encode-parse
         len (+ 4 0 1 (String/.length query) 1 2 (* 4 param-count))
         bb (.. (ByteBuffer/allocate (+ 1 len))
              (put (byte #_\P 80))
@@ -181,7 +178,7 @@
 
     (doto bb .flip)))
 
-(defmethod encode :describe
+(defn encode-describe
   [{:keys [target]}]
   (let [len (+ 4 1 0 #_name 1)]
     (..
@@ -199,11 +196,13 @@
     (putInt 4)
     (flip)))
 
-(defmethod encode :copy-done
+(defn encode-copy-done
   [_]
   (.duplicate copy-done))
 
-(defmethod encode :copy-data
+(declare encode)
+
+(defn encode-copy-data
   [{:keys [data]}]
   (let [^ByteBuffer bb (encode data)
         len (+ (.remaining bb) 4)]
@@ -214,7 +213,7 @@
       (put ^ByteBuffer bb)
       (flip))))
 
-(defmethod encode :standby-status-update
+(defn encode-standby-status-update
   [{:keys [written-lsn flushed-lsn applied-lsn system-clock reply-asap?]}]
   (.. (ByteBuffer/allocate (+ 1 64 64 64 64 1))
     (put (byte 114))
@@ -225,7 +224,7 @@
     (put (byte (case reply-asap? true 1 0)))
     (flip)))
 
-(defmethod encode :simple-query
+(defn encode-simple-query
   [{:keys [^String query]}]
   (let [len (+ 1 4 (String/.length query) 1)]
     (.. (ByteBuffer/allocate len)
@@ -235,8 +234,27 @@
       (put (byte 0))
       (flip))))
 
-(defmethod encode :terminate [_]
+(defn encode-terminate []
   (.. (ByteBuffer/allocate 5)
     (put (byte 88))
     (putInt 4)
     (flip)))
+
+(defn encode [options]
+  (case (:type options)
+    :startup (encode-startup options)
+    :sasl-initial-response (encode-sasl-initial-response options)
+    :sasl-response (encode-sasl-response options)
+    :ssl-request (encode-ssl-request)
+    :flush (encode-flush)
+    :sync (encode-sync)
+    :bind (encode-bind options)
+    :execute (encode-execute options)
+    :close (encode-close options)
+    :parse (encode-parse options)
+    :describe (encode-describe options)
+    :copy-done (encode-copy-done options)
+    :copy-data (encode-copy-data options)
+    :standby-status-update (encode-standby-status-update options)
+    :simple-query (encode-simple-query options)
+    :terminate (encode-terminate)))
