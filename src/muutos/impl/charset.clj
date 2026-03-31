@@ -16,7 +16,9 @@
   ^ByteBuffer [^String s]
   `(.encode StandardCharsets/UTF_8 ~s))
 
-(defmacro string
+(defn string
   "Get the UTF-8 string of a java.nio.ByteBuffer."
   ^String [^ByteBuffer bb]
-  `(str (.decode StandardCharsets/UTF_8 ~bb)))
+  (let [ba (byte-array (.remaining bb))]
+    (.get bb ba)
+    (String. ba StandardCharsets/UTF_8)))
