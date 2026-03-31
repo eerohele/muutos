@@ -51,8 +51,8 @@
       (if (and (.hasNext attr-defs-it) (.hasNext vals-it))
         (let [n-attr (.next attr-defs-it)
               n-val (cond-> (.next vals-it) (identical? format :txt) (some-> charset/string))
-              attr-name (key-fn (n-attr :table-oid) (n-attr :name))
-              data-type-oid (n-attr :data-type-oid)
+              attr-name (key-fn (:table-oid n-attr) (:name n-attr))
+              data-type-oid (:data-type-oid n-attr)
               decode (case format
                        :txt (fn [s] (decode-txt query-fn data-type-oid s 0))
                        :bin (fn [bb] (decode-bin query-fn data-type-oid bb 0))
