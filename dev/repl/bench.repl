@@ -1,17 +1,38 @@
-(require '[clojure.repl.deps :as deps])
-
-(deps/add-libs '{criterium/criterium {:mvn/version "0.4.6"}})
-
-(deps/add-libs '{com.github.seancorfield/next.jdbc {:mvn/version "1.3.1093"}
-                 org.postgresql/postgresql {:mvn/version "42.7.10"}
-                 com.zaxxer/HikariCP {:mvn/version "7.0.2"}})
-
 (require '[next.jdbc :as jdbc])
 (require '[next.jdbc.connection :as connection])
 (require '[muutos.test.concurrency :refer [concurrently]])
-(require '[criterium.core :refer [quick-bench]])
+(require '[criterium.core :as bench])
 
+(import '(java.lang AutoCloseable))
+(import '(java.text StringCharacterIterator))
 (import '(com.zaxxer.hikari HikariDataSource))
+
+(defn human-readable-byte-count
+  [bytes]
+  (if (< -1000 bytes 1000)
+    (str bytes " B")
+    (let [ci (StringCharacterIterator. "kMGTPE")
+          bytes (loop [bytes bytes]
+                  (if (or (<= bytes -999950) (>= bytes 999950))
+                    (do (.next ci) (recur (/ bytes 1000)))
+                    bytes))]
+      (format "%.1f %cB" (/ bytes 1000.0) (.current ci)))))
+
+(defmacro allocated-bytes
+  "Execute the body, then print a human-readable presentation of magnitude of
+  bytes that were allocated during the execution of the body."
+  [& body]
+  `(let [^com.sun.management.ThreadMXBean bean# (java.lang.management.ManagementFactory/getThreadMXBean)
+         bytes-before# (.getCurrentThreadAllocatedBytes bean#)]
+     ~@body
+     (let [bytes-after# (.getCurrentThreadAllocatedBytes bean#)]
+       (println
+         (human-readable-byte-count (- bytes-after# bytes-before#))
+         "allocated"))))
+
+(defmacro add-shutdown-hook [& body]
+  `(.addShutdownHook (Runtime/getRuntime)
+     (Thread. (^:once fn* [] (do ~@body)))))
 
 (def q-film-by-id
   "SELECT release_year,
@@ -32,11 +53,24 @@
 
 (comment (->jdbc q-film-by-id) ,,,)
 
-(def jdbc-pool
-  (connection/->pool HikariDataSource
-    {:dbtype "postgres" :dbname "postgres" :username "postgres" :password "postgres"}))
+(def jdbc-conn
+  (jdbc/get-connection {:dbtype "postgres"
+                        :dbname "postgres"
+                        :user "postgres"
+                        :password "postgres"
+                        :prepareThreshold 0}))
 
-(quick-bench
+(add-shutdown-hook (AutoCloseable/.close jdbc-conn))
+
+(println "next.jdbc without pool (no contention)")
+(->
+  (jdbc/execute! jdbc-conn [(->jdbc q-film-by-id) 42])
+  (bench/quick-bench)
+  (allocated-bytes))
+
+(println "next.jdbc without pool (with contention)")
+
+(->
   (concurrently {:threads 1000}
     (assert (= [{:film/release_year 2008
                  :film/length 170
@@ -46,10 +80,37 @@
                  :film/description "A Stunning Reflection of a Robot And a Moose who must Challenge a Woman in California"
                  :film/rental_rate 2.99M
                  :film/replacement_cost 10.99M}]
-              (jdbc/execute! jdbc-pool [(->jdbc q-film-by-id) 42])))))
-;; Execution time mean : 22.269118 ms
+              (jdbc/execute! jdbc-conn [(->jdbc q-film-by-id) 42]))))
+  (bench/quick-bench)
+  (allocated-bytes))
 
-(deps/add-libs '{com.github.igrishaev/pg2-core {:mvn/version "0.1.48"}})
+(def jdbc-pool
+  (connection/->pool HikariDataSource
+    {:dbtype "postgres"
+     :dbname "postgres"
+     :username "postgres"
+     :password "postgres"
+     :minimumIdle 10
+     :maximumPoolSize 10
+     :dataSourceProperties {:prepareThreshold 0}}))
+
+(add-shutdown-hook (AutoCloseable/.close jdbc-pool))
+
+(println)
+(println "next.jdbc with pool (with contention)")
+(->
+  (concurrently {:threads 1000}
+    (assert (= [{:film/release_year 2008
+                 :film/length 170
+                 :language "German"
+                 :film/title "ARTIST COLDBLOODED"
+                 :film/rating "NC-17"
+                 :film/description "A Stunning Reflection of a Robot And a Moose who must Challenge a Woman in California"
+                 :film/rental_rate 2.99M
+                 :film/replacement_cost 10.99M}]
+              (jdbc/execute! jdbc-pool [(->jdbc q-film-by-id) 42]))))
+  (bench/quick-bench)
+  (allocated-bytes))
 
 (require '[pg.core :as pg])
 (require '[pg.oid :as oid])
@@ -65,9 +126,18 @@
    :pool-max-size 10})
 
 (def pg-conn (pg/connect config))
+(add-shutdown-hook (pg/close pg-conn))
 
-;; pg2 without connection pooling
-(quick-bench
+(println)
+(println "pg2 without connection pool (no contention)")
+(->
+  (pg/execute pg-conn q-film-by-id {:params [42] :oids [oid/int8]})
+  (bench/quick-bench)
+  (allocated-bytes))
+
+(println)
+(println "pg2 without connection pool (with contention)")
+(->
   (concurrently {:threads 1000}
     (assert (= [{:release_year 2008
                  :length 170
@@ -77,14 +147,73 @@
                  :description "A Stunning Reflection of a Robot And a Moose who must Challenge a Woman in California"
                  :rental_rate 2.99M
                  :replacement_cost 10.99M}]
-              (pg/execute pg-conn q-film-by-id {:params [42] :oids [oid/int8]})))))
-;; Execution time mean : 90.751762 ms
+              (pg/execute pg-conn q-film-by-id {:params [42] :oids [oid/int8]}))))
+  (bench/quick-bench)
+  (allocated-bytes))
 
-;; pg2 with connection pooling
-(pg/with-pool [pg-pool config]
-  (quick-bench
-    (concurrently {:threads 1000}
-      (pg/with-connection [conn pg-pool]
+(println)
+(println "pg2 with connection pool (with contention)")
+(allocated-bytes
+  (pg/with-pool [pg-pool config]
+    (->
+      (concurrently {:threads 1000}
+        (pg/with-connection [conn pg-pool]
+          (assert (= [{:release_year 2008
+                       :length 170
+                       :language "German"
+                       :title "ARTIST COLDBLOODED"
+                       :rating "NC-17"
+                       :description "A Stunning Reflection of a Robot And a Moose who must Challenge a Woman in California"
+                       :rental_rate 2.99M
+                       :replacement_cost 10.99M}]
+                    (pg/execute conn q-film-by-id {:params [42] :oids [oid/int8]})))))
+      (bench/quick-bench))))
+
+(require '[muutos.sql-client :as sql])
+
+(def pg (sql/connect :key-fn (fn [_ attr-name] (keyword attr-name))))
+(add-shutdown-hook (AutoCloseable/.close pg))
+
+(println)
+(println "muutos without connection pool (no contention)")
+(->
+  (sql/eq pg [q-film-by-id 42])
+  (bench/quick-bench)
+  (allocated-bytes))
+
+(println)
+(println "muutos without connection pool (with contention)")
+(->
+  (concurrently {:threads 1000}
+    (assert (= [{:release_year 2008
+                 :length 170
+                 :language "German"
+                 :title "ARTIST COLDBLOODED"
+                 :rating "NC-17"
+                 :description "A Stunning Reflection of a Robot And a Moose who must Challenge a Woman in California"
+                 :rental_rate 2.99M
+                 :replacement_cost 10.99M}]
+              (sql/eq pg [q-film-by-id 42]))))
+  (bench/quick-bench)
+  (allocated-bytes))
+
+(require '[com.github.enragedginger.clj-pool-party.core :as pool])
+
+(def pool
+  ;; Create a connection pool with ten maximum connections.
+  (pool/build-pool
+    (fn [] (sql/connect :key-fn (fn [_ attr-name] (keyword attr-name))))
+    10
+    {:close-fn (fn [pg] (AutoCloseable/.close pg))}))
+
+(add-shutdown-hook (pool/evict-all pool))
+
+(println)
+(println "muutos with connection pool (with contention)")
+(->
+  (concurrently {:threads 1000}
+    (pool/with-object pool
+      (fn [pg]
         (assert (= [{:release_year 2008
                      :length 170
                      :language "German"
@@ -93,5 +222,61 @@
                      :description "A Stunning Reflection of a Robot And a Moose who must Challenge a Woman in California"
                      :rental_rate 2.99M
                      :replacement_cost 10.99M}]
-                  (pg/execute conn q-film-by-id {:params [42] :oids [oid/int8]})))))))
-;; Execution time mean : 36.411568 ms
+                  (sql/eq pg [q-film-by-id 42]))))))
+  (bench/quick-bench)
+  (allocated-bytes))
+
+(def ^:private q-insert-film
+  "INSERT INTO film (title, description, release_year, language_id, rental_duration, rental_rate, length, replacement_cost, rating, special_features)
+   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::mpaa_rating, $10)")
+
+(def q-actor-by-title
+  "SELECT actor.first_name, actor.last_name
+   FROM film
+   JOIN film_actor ON film_actor.film_id = film.film_id
+   JOIN actor ON film_actor.actor_id = actor.actor_id WHERE title = $1")
+
+(def q-delete-film-actor
+  "DELETE FROM film_actor
+   WHERE actor_id IN (SELECT actor_id FROM actor WHERE first_name = $1 AND last_name = $2)
+   AND film_id IN (SELECT film_id FROM film  WHERE title = $3)")
+
+(def q-delete-actor
+  "DELETE FROM actor WHERE first_name = $1 AND last_name = $1")
+
+(def q-delete-film
+  "DELETE FROM film WHERE title = $1")
+
+(def q-insert-actor
+  "INSERT INTO actor (first_name, last_name) VALUES ($1, $2)")
+
+(def q-insert-film-actor
+  "INSERT INTO film_actor (actor_id, film_id) VALUES (currval('actor_actor_id_seq'), currval('film_film_id_seq'))")
+
+(println)
+(println "muutos pipeline (no contention)")
+(bench/quick-bench
+  (sql/eq pg
+    [q-delete-film-actor "HUMPHREY" "DIESEL" "GALAXY TORRENT"]
+    [q-delete-actor "HUMPHREY" "DIESEL"]
+    [q-delete-film "GALAXY TORRENT"]
+    [q-insert-film "GALAXY TORRENT"
+     "A Epic Tale of a Fearless Astronaut And a Rogue Scientist Who Must Conquer a Supernova in The Outer Reaches of Space"
+     2006 1 5 2.99M 112 21.99M "PG-13" (into-array String ["Trailers" "Behind the Scenes"])]
+    [q-insert-actor "HUMPHREY" "DIESEL"]
+    [q-insert-film-actor]
+    [q-actor-by-title "GALAXY TORRENT"]))
+
+(println)
+(println "next.jdbc transaction (no contention)")
+(bench/quick-bench
+  (jdbc/with-transaction [tx jdbc-conn]
+    (jdbc/execute! tx [(->jdbc q-delete-film-actor) "HUMPHREY" "DIESEL" "GALAXY TORRENT"])
+    (jdbc/execute! tx [(->jdbc q-delete-actor) "HUMPHREY" "DIESEL"])
+    (jdbc/execute! tx [(->jdbc q-delete-film) "GALAXY TORRENT"])
+    (jdbc/execute! tx [(->jdbc q-insert-film) "GALAXY TORRENT"
+                       "A Epic Tale of a Fearless Astronaut And a Rogue Scientist Who Must Conquer a Supernova in The Outer Reaches of Space"
+                       2006 1 5 2.99M 112 21.99M "PG-13" (into-array String ["Trailers" "Behind the Scenes"])])
+    (jdbc/execute! tx [(->jdbc q-insert-actor) "HUMPHREY" "DIESEL"])
+    (jdbc/execute! tx [(->jdbc q-insert-film-actor)])
+    (jdbc/execute! tx [(->jdbc q-actor-by-title) "GALAXY TORRENT"])))
