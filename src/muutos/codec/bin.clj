@@ -561,7 +561,10 @@
                    (.putShort (short first-digit-weight))
                    (.putShort (short sign))
                    (.putShort (short dscale)))]
-          (run! (fn [digit] (.putShort bb (short digit))) (rseq digits))
+          (loop [i (dec ndigits)]
+            (when (nat-int? i)
+              (.putShort bb (short (nth digits i)))
+              (recur (dec i))))
           (ByteBuffer/.flip bb)))))
 
   Inet
