@@ -13,6 +13,7 @@
             [muutos.impl.lockable :refer [Lockable with-lock]]
             [muutos.impl.type :as type])
   (:import (java.lang AutoCloseable)
+           (java.nio ByteBuffer)
            (java.util.concurrent.locks ReentrantLock)))
 
 (set! *warn-on-reflection* true)
@@ -157,6 +158,23 @@
 
     (with-meta client (assoc session :options (select-keys options [:key-fn])))))
 
+(defn ^:private prepare-parameters [client parameters]
+  (let [len (count parameters)
+        ^long/1 oids (long-array len)
+        ^ByteBuffer/1 bbs (make-array ByteBuffer len)]
+    (loop [i 0]
+      (if-some [parameter (nth parameters i nil)]
+        (let [^long oid (client/oid client parameter)
+              bb (bin/encode parameter)]
+          (aset oids i oid)
+          (aset bbs i bb)
+          (recur (inc i)))
+        [oids bbs]))))
+
+(comment
+  (def pg (connect))
+  (prepare-parameters pg [1 "foo"])
+  ,,,)
 
 (defn eq
   "Given a client and any number of query vectors, run an extended query.
@@ -166,8 +184,7 @@
   (with-lock client
     (let [^long n (loop [n 0 qs qs]
                     (if-some [[q & parameters] (first qs)]
-                      (let [oids (mapv (fn [parameter] (client/oid client parameter)) parameters)
-                            parameters (mapv bin/encode parameters)]
+                      (let [[oids parameters] (prepare-parameters client parameters)]
                         ;; FIXME: What if encoding any of these fail? Especially ones user input can affect?
                         (client/enqueue client {:type :parse :oids oids :query q})
                         (client/enqueue client {:type :describe :target :statement})

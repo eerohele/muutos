@@ -84,9 +84,9 @@
   []
   (.duplicate sync))
 
-  [{:keys [parameters]}]
-  (let [parameter-count (count parameters)
 (defn encode-bind
+  [{:keys [^ByteBuffer/1 parameters]}]
+  (let [parameter-count (alength parameters)
         len (+
               4
               0 ; unnamed portal
@@ -101,11 +101,11 @@
               2
               2)
         len (loop [i 0 len len]
-              (if (< i parameter-count)
-                (let [parameter (nth parameters i)
+              (if (= i parameter-count)
+                len
+                (let [parameter (aget parameters i)
                       ^int capacity (or (some-> parameter ByteBuffer/.capacity) 0)]
-                  (recur (inc i) (+ len capacity)))
-                len))
+                  (recur (inc i) (+ len capacity)))))
         bb (.. (ByteBuffer/allocate (+ 1 ^long len))
              (put (byte #_\B 66))
              (putInt len)
@@ -122,7 +122,7 @@
 
     (loop [i 0]
       (when (< i parameter-count)
-        (let [x (nth parameters i)]
+        (let [x (aget parameters i)]
           (if (nil? x)
             (.putInt bb -1)
             (do
@@ -157,9 +157,9 @@
       (put (byte 0))
       (flip))))
 
-  [{:keys [oids ^String query]}]
-  (let [param-count (count oids)
 (defn encode-parse
+  [{:keys [^long/1 oids ^String query]}]
+  (let [param-count (alength oids)
         len (+ 4 0 1 (String/.length query) 1 2 (* 4 param-count))
         bb (.. (ByteBuffer/allocate (+ 1 len))
              (put (byte #_\P 80))
@@ -172,7 +172,7 @@
 
     (loop [i 0]
       (when (< i param-count)
-        (let [oid (nth oids i)]
+        (let [oid (aget oids i)]
           (.putInt bb oid))
         (recur (inc i))))
 
