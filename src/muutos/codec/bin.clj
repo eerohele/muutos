@@ -93,6 +93,18 @@
     701 (aset ^doubles ary idx ^double val)
     (aset ^Object/1 ary idx ^Object val)))
 
+(defn ^:private aget-oid [^long oid ary idx]
+  (case oid
+    16 (aget ^booleans ary idx)
+    18 (aget ^chars ary idx)
+    20 (aget ^longs ary idx)
+    21 (aget ^shorts ary idx)
+    23 (aget ^ints ary idx)
+    25 (aget ^String/1 ary idx)
+    700 (aget ^floats ary idx)
+    701 (aget ^doubles ary idx)
+    (aget ^Object/1 ary idx)))
+
 (defn ^:private decode-array [bb]
   (let [dimensions (int32 bb)
         _has-nulls? (int32 bb)
@@ -709,7 +721,7 @@
     double/1 701
     :else 0))
 
-(defn ^:private byte-length [s]
+(defn ^:private byte-length ^long [s]
   (-> s charset/bytes alength))
 
 (defn ^:private encode-string-array [^String/1 ary]
@@ -718,7 +730,10 @@
         oid (array-oid ary)
         dim-length (alength ary)
         lower-bound 1
-        ^long len (transduce (map byte-length) + 0 ary)
+        ^long len (loop [i 0 n 0]
+                    (if (= i dim-length)
+                      n
+                      (recur (inc i) (+ n (byte-length (aget ary i))))))
         bb (ByteBuffer/allocate (+ 4 4 4 (* dimensions (+ 4 4)) (* 4 dim-length) len))]
     (.putInt bb dimensions)
     (.putInt bb has-nulls?)
@@ -727,10 +742,13 @@
     (dotimes [_ dimensions]
       (.putInt bb dim-length)
       (.putInt bb lower-bound)
-      (run! (fn [x]
-              (.putInt bb (byte-length x))
-              (.put bb ^ByteBuffer (encode x)))
-        ary))
+
+      (loop [i 0]
+        (when (< i dim-length)
+          (let [x (encode (aget ary i))]
+            (.putInt bb (ByteBuffer/.capacity x))
+            (.put bb ^ByteBuffer x))
+          (recur (inc i)))))
 
     (doto bb .flip)))
 
@@ -751,9 +769,12 @@
     (dotimes [_ dimensions]
       (.putInt bb dim-length)
       (.putInt bb lower-bound)
-      (run! (fn [x]
-              (.putInt bb size)
-              (.put bb ^ByteBuffer (encode x)))
-        ary))
+
+      (loop [i 0]
+        (when (< i dim-length)
+          (let [x (aget-oid oid ary i)]
+            (.putInt bb size)
+            (.put bb ^ByteBuffer (encode x)))
+          (recur (inc i)))))
 
     (doto bb .flip)))
