@@ -37,7 +37,7 @@ Turn Postgres binary data into Java data types and vice versa.
 
 A Clojure/Java type that can be encoded into a `java.nio.ByteBuffer` for use
   as a PostgreSQL query parameter.
-<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/codec/bin.clj#L395-L400">Source</a></sub></p>
+<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/codec/bin.clj#L407-L412">Source</a></sub></p>
 
 ## <a name="muutos.codec.bin/decode">`decode`</a>
 ``` clojure
@@ -67,7 +67,7 @@ Given a `java.nio.ByteBuffer`, decode a null-terminated string (aka C
 Function.
 
 Encode a parameter into a `java.nio.ByteBuffer`.
-<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/codec/bin.clj#L399-L400">Source</a></sub></p>
+<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/codec/bin.clj#L411-L412">Source</a></sub></p>
 
 -----
 # <a name="muutos.codec.txt">muutos.codec.txt</a>
