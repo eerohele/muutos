@@ -247,6 +247,15 @@
     (let [cs (utf8-string->cstring s)]
       (= s (bin/decode-cstring cs)))))
 
+(deftest decode-cstring-slice
+  (let [bb (ByteBuffer/wrap (.getBytes "ABCHello\0"))
+        slice (.slice bb 3 6)]
+    (is (= "Hello" (bin/decode-cstring slice))))
+
+  (let [bb (ByteBuffer/wrap (.getBytes (str "ABCHello\0" "DEF")))
+        slice (.slice bb 3 6)]
+    (is (= "Hello" (bin/decode-cstring slice)))))
+
 (defn ^:private decode-cstring-oracle [^ByteBuffer bb]
   (let [sb (StringBuilder.)]
     (loop []
