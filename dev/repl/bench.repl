@@ -251,7 +251,8 @@
   "INSERT INTO actor (first_name, last_name) VALUES ($1, $2)")
 
 (def q-insert-film-actor
-  "INSERT INTO film_actor (actor_id, film_id) VALUES (currval('actor_actor_id_seq'), currval('film_film_id_seq'))")
+  "INSERT INTO film_actor (actor_id, film_id)
+   VALUES (currval('actor_actor_id_seq'), currval('film_film_id_seq'))")
 
 (println)
 (println "muutos pipeline (no contention)")
