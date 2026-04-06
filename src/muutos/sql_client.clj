@@ -291,166 +291,167 @@
 
 (defn prepare
   [client query-string oids]
-  (with-lock client
-    (client/enqueue client {:type :parse :statement "s_1" :query query-string :oids oids})
-    (client/enqueue client {:type :sync})
-    (client/flush client)
-
-    (try
-      (loop [command-complete {}
-             data (transient [])
-             ex nil]
-        (let [response (client/recv client)
-              type (response :type)]
-          (case type
-            :ready-for-query
-            (if ex
-              (throw ex)
-              (with-meta (persistent! data) (dissoc command-complete :type)))
-
-            :read-error
-            (let [response-ex (:ex response)
-                  ex (ex-info (ex-message response-ex) (ex-data response-ex) ex)]
-              (throw ex))
-
-            :error
-            (recur command-complete data (:ex response))
-
-            :notice
-            (do
-              (client/log client :info ::server-notice {:notice response})
-              (recur command-complete data ex))
-
-            (:command-complete :portal-suspended :empty-query)
-            (if ex
-              (throw ex)
-              (with-meta data (dissoc command-complete :type)))
-
-            (:parse-complete :close-complete)
-            (recur command-complete data ex)
-
-            :parameter
-            (let [parameter (response :parameter)]
-              (recur command-complete (conj! data parameter) ex)))))
-      (catch Throwable ex
-        (if (= ::error/server-error (-> ex ex-data :kind))
-          (throw ex)
-          (do
-            (AutoCloseable/.close client)
-            (anomaly! "Fatal error when reading server response; closing client to prevent protocol desynchronization" ::anomalies/fault (ex-data ex) ex))))))
-
-  (reify
-    PreparedStatement
-    (execute [_ args]
-      (let [parameters (mapv bin/encode args)]
-        (client/enqueue client {:type :describe :target :statement :name "s_1"})
-        (client/enqueue client {:type :bind :statement "s_1" :portal unnamed-portal :parameters parameters})
-        (client/enqueue client {:type :execute :portal unnamed-portal :max-rows 0})
-        (client/enqueue client {:type :sync})
-        (client/flush client))
-
-      (reify
-        clojure.lang.IReduceInit
-        (reduce [_ f init]
-          (loop [command-complete {}
-                 row-description {}
-                 data init
-                 ex nil]
-            (let [response (client/recv client)
-                  {:keys [key-fn]} (client/options client)
-                  type (response :type)]
-              (case type
-                :ready-for-query
-                (if ex
-                  (throw ex)
-                  data)
-
-                :read-error
-                (let [response-ex (:ex response)
-                      ex (ex-info (ex-message response-ex) (ex-data response-ex) ex)]
-                  (throw ex))
-
-                :error
-                (recur command-complete row-description data (:ex response))
-
-                :notice
-                (do
-                  (client/log client :info ::server-notice {:notice response})
-                  (recur command-complete row-description data ex))
-
-                :copy-data
-                (recur command-complete row-description (f data (response :data)) ex)
-
-                :copy-in
-                (do
-                  (client/enqueue client {:type :copy-done})
-                  (client/flush client)
-                  (anomaly! "Not implemented: COPY ... FROM STDIN" ::anomalies/unsupported {:type type}))
-
-                :copy-both
-                (f data (dissoc response :type))
-
-                (:command-complete :portal-suspended :empty-query)
-                (if ex
-                  (throw ex)
-                  (recur command-complete row-description data ex))
-
-                (:bind-complete :close-complete :parameter-description :copy-out :copy-done :no-data)
-                (recur command-complete row-description data ex)
-
-                :parameter
-                (let [parameter (response :parameter)]
-                  (recur command-complete row-description (f data parameter) ex))
-
-                :row-description
-                (recur command-complete response data ex)
-
-                :data-row
-                (let [attrs (row-description :attrs)
-                      tuples (response :tuple)
-                      data-row (data-row/parse attrs tuples {:query-fn (fn [qvec] (eq (client/aux client) qvec)) :key-fn key-fn :format :bin})]
-                  (recur command-complete row-description (f data data-row) ex))))))))
-
-    AutoCloseable
-    (close [this]
-      (client/enqueue client {:type :close :target :statement :name "s_1"})
+  (let [statement-name (str "m_" (random-uuid))]
+    (with-lock client
+      (client/enqueue client {:type :parse :statement statement-name :query query-string :oids oids})
       (client/enqueue client {:type :sync})
       (client/flush client)
 
-      (loop [data []
-             ex nil]
-        (let [response (client/recv client)
-              type (response :type)]
-          (case type
-            :ready-for-query
-            (if ex
-              (throw ex)
-              data)
+      (try
+        (loop [command-complete {}
+               data (transient [])
+               ex nil]
+          (let [response (client/recv client)
+                type (response :type)]
+            (case type
+              :ready-for-query
+              (if ex
+                (throw ex)
+                (with-meta (persistent! data) (dissoc command-complete :type)))
 
-            :read-error
-            (let [response-ex (:ex response)
-                  ex (ex-info (ex-message response-ex) (ex-data response-ex) ex)]
-              (throw ex))
+              :read-error
+              (let [response-ex (:ex response)
+                    ex (ex-info (ex-message response-ex) (ex-data response-ex) ex)]
+                (throw ex))
 
-            :error
-            (recur data (:ex response))
+              :error
+              (recur command-complete data (:ex response))
 
-            (:command-complete :portal-suspended :empty-query)
-            (if ex
-              (throw ex)
-              data)
+              :notice
+              (do
+                (client/log client :info ::server-notice {:notice response})
+                (recur command-complete data ex))
 
-            :close-complete
-            (recur data ex)))))))
+              (:command-complete :portal-suspended :empty-query)
+              (if ex
+                (throw ex)
+                (with-meta data (dissoc command-complete :type)))
+
+              (:parse-complete :close-complete)
+              (recur command-complete data ex)
+
+              :parameter
+              (let [parameter (response :parameter)]
+                (recur command-complete (conj! data parameter) ex)))))
+        (catch Throwable ex
+          (if (= ::error/server-error (-> ex ex-data :kind))
+            (throw ex)
+            (do
+              (AutoCloseable/.close client)
+              (anomaly! "Fatal error when reading server response; closing client to prevent protocol desynchronization" ::anomalies/fault (ex-data ex) ex))))))
+
+    (reify
+      PreparedStatement
+      (execute [_ args]
+        (let [parameters (mapv bin/encode args)]
+          (client/enqueue client {:type :describe :target :statement :name statement-name})
+          (client/enqueue client {:type :bind :statement statement-name :portal unnamed-portal :parameters parameters})
+          (client/enqueue client {:type :execute :portal unnamed-portal :max-rows 0})
+          (client/enqueue client {:type :sync})
+          (client/flush client))
+
+        (reify
+          clojure.lang.IReduceInit
+          (reduce [_ f init]
+            (loop [command-complete {}
+                   row-description {}
+                   data init
+                   ex nil]
+              (let [response (client/recv client)
+                    {:keys [key-fn]} (client/options client)
+                    type (response :type)]
+                (case type
+                  :ready-for-query
+                  (if ex
+                    (throw ex)
+                    data)
+
+                  :read-error
+                  (let [response-ex (:ex response)
+                        ex (ex-info (ex-message response-ex) (ex-data response-ex) ex)]
+                    (throw ex))
+
+                  :error
+                  (recur command-complete row-description data (:ex response))
+
+                  :notice
+                  (do
+                    (client/log client :info ::server-notice {:notice response})
+                    (recur command-complete row-description data ex))
+
+                  :copy-data
+                  (recur command-complete row-description (f data (response :data)) ex)
+
+                  :copy-in
+                  (do
+                    (client/enqueue client {:type :copy-done})
+                    (client/flush client)
+                    (anomaly! "Not implemented: COPY ... FROM STDIN" ::anomalies/unsupported {:type type}))
+
+                  :copy-both
+                  (f data (dissoc response :type))
+
+                  (:command-complete :portal-suspended :empty-query)
+                  (if ex
+                    (throw ex)
+                    (recur command-complete row-description data ex))
+
+                  (:bind-complete :close-complete :parameter-description :copy-out :copy-done :no-data)
+                  (recur command-complete row-description data ex)
+
+                  :parameter
+                  (let [parameter (response :parameter)]
+                    (recur command-complete row-description (f data parameter) ex))
+
+                  :row-description
+                  (recur command-complete response data ex)
+
+                  :data-row
+                  (let [attrs (row-description :attrs)
+                        tuples (response :tuple)
+                        data-row (data-row/parse attrs tuples {:query-fn (fn [qvec] (eq (client/aux client) qvec)) :key-fn key-fn :format :bin})]
+                    (recur command-complete row-description (f data data-row) ex))))))))
+
+      AutoCloseable
+      (close [this]
+        (client/enqueue client {:type :close :target :statement :name statement-name})
+        (client/enqueue client {:type :sync})
+        (client/flush client)
+
+        (loop [data []
+               ex nil]
+          (let [response (client/recv client)
+                type (response :type)]
+            (case type
+              :ready-for-query
+              (if ex
+                (throw ex)
+                data)
+
+              :read-error
+              (let [response-ex (:ex response)
+                    ex (ex-info (ex-message response-ex) (ex-data response-ex) ex)]
+                (throw ex))
+
+              :error
+              (recur data (:ex response))
+
+              (:command-complete :portal-suspended :empty-query)
+              (if ex
+                (throw ex)
+                data)
+
+              :close-complete
+              (recur data ex))))))))
 
 (comment
   (def pg (connect :key-fn (fn [_ attr-name] (keyword attr-name))))
   (.close pg)
 
   (def stmt (prepare pg "SELECT bad" [(int 25) (int 25)]))
-  (def stmt (prepare pg "SELECT $1 || $2" [(int 25) (int 25)]))
-  (into [] (execute stmt ["a" "b"]))
-  (.close stmt)
+  (def stmt (delay (prepare pg "SELECT $1 || $2" [(int 25) (int 25)])))
+  (into [] (execute (force stmt) ["a" "b"]))
+  (.close @stmt)
   (instance? clojure.lang.IReduceInit stmt)
   (instance? AutoCloseable stmt)
   (ifn? s)
@@ -461,8 +462,8 @@
   (into [] (s ["a" "c"]))
   (.close stmt)
 
-  (def s (prepare pg "SELECT * FROM film WHERE film_id = ANY($1)" [(int 1007)]))
-  (into [] (s [(int-array 1 2)]))
+  (def film-by-ids (prepare pg "SELECT * FROM film WHERE film_id = ANY($1)" [(int 1007)]))
+  (into [] (execute film-by-ids [(int-array 3 2)]))
   ,,,)
 
 #_{:clj-kondo/ignore [:unused-binding]}
