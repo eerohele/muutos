@@ -1,5 +1,6 @@
 (require '[next.jdbc :as jdbc])
 (require '[next.jdbc.connection :as connection])
+(require '[next.jdbc.prepare :as p])
 (require '[muutos.test.concurrency :refer [concurrently]])
 (require '[criterium.core :as bench])
 
@@ -281,3 +282,13 @@
     (jdbc/execute! tx [(->jdbc q-insert-actor) "HUMPHREY" "DIESEL"])
     (jdbc/execute! tx [(->jdbc q-insert-film-actor)])
     (jdbc/execute! tx [(->jdbc q-actor-by-title) "GALAXY TORRENT"])))
+
+(println)
+(println "next.jdbc prepare")
+(def jdbc-stmt (jdbc/prepare jdbc-conn ["SELECT * FROM film WHERE film_id = ?"]))
+(bench/quick-bench (jdbc/execute-one! (p/set-parameters jdbc-stmt [1])))
+
+(println "muutos prepare")
+(def film-by-id (sql/prepare pg "SELECT * FROM film WHERE film_id = $1"))
+
+(bench/quick-bench (peek (into [] (film-by-id [(int 1)]))))

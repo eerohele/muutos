@@ -285,11 +285,12 @@
   (def pg (connect))
   (AutoCloseable/.close pg)
   (eq pg ["SELECT $1 AS n" 1])
+  (eq pg ["SELECT 1"])
   ,,,)
 
 (defn prepare
   ([client query-string]
-   (prepare client query-string [(int 0)]))
+   (prepare client query-string []))
   ([client query-string oids]
    (let [statement-name (str "ms_" (random-uuid))]
      (with-lock client
