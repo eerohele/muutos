@@ -12,7 +12,7 @@
             [muutos.impl.hook :as hook]
             [muutos.impl.lockable :refer [Lockable with-lock]]
             [muutos.impl.type :as type])
-  (:import (clojure.lang IReduceInit)
+  (:import (clojure.lang IFn IReduceInit)
            (java.lang AutoCloseable)
            (java.util.concurrent.locks ReentrantLock)))
 
@@ -287,14 +287,11 @@
   (eq pg ["SELECT $1 AS n" 1])
   ,,,)
 
-(defprotocol ^:private PreparedStatement
-  (execute [this args]))
-
 (defn prepare
   ([client query-string]
    (prepare client query-string [(int 0)]))
   ([client query-string oids]
-   (let [statement-name (str "m_" (random-uuid))]
+   (let [statement-name (str "ms_" (random-uuid))]
      (with-lock client
        (client/enqueue client {:type :parse :statement statement-name :query query-string :oids oids})
        (client/enqueue client {:type :sync})
@@ -344,8 +341,8 @@
                (anomaly! "Fatal error when reading server response; closing client to prevent protocol desynchronization" ::anomalies/fault (ex-data ex) ex))))))
 
      (reify
-       PreparedStatement
-       (execute [_ args]
+       IFn
+       (invoke [_ args]
          (let [parameters (mapv bin/encode args)]
            (client/enqueue client {:type :describe :target :statement :name statement-name})
            (client/enqueue client {:type :bind :statement statement-name :portal unnamed-portal :parameters parameters})
@@ -384,9 +381,11 @@
                        (recur command-complete row-description data ex))
 
                      :copy-data
-                     (recur command-complete row-description (if (reduced? data)
-                                                               data
-                                                               (rf data (response :data))) ex)
+                     (recur command-complete row-description
+                       (if (reduced? data)
+                         data
+                         (rf data (response :data)))
+                       ex)
 
                      :copy-in
                      (do
@@ -409,9 +408,11 @@
 
                      :parameter
                      (let [parameter (response :parameter)]
-                       (recur command-complete row-description (if (reduced? data)
-                                                                 data
-                                                                 (rf data parameter)) ex))
+                       (recur command-complete row-description
+                         (if (reduced? data)
+                           data
+                           (rf data parameter))
+                         ex))
 
                      :row-description
                      (recur command-complete response data ex)
@@ -486,11 +487,11 @@
   ;;
   ;; Executing the statement returns a clojure.lang.IReduceInit, which we
   ;; reduce into a vector using `into`.
-  (def reducible (execute film-by-ids [(int-array [3 2])]))
+  (def reducible (film-by-ids [(int-array [3 2])]))
 
   (into []
     #_(halt-when (fn [film] (= "G" (:rating film))))
-    (execute film-by-ids [(int-array [3 2])]))
+    (film-by-ids [(int-array [3 2])]))
 
   ;; Close the prepared statement.
   ;;
