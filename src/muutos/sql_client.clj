@@ -12,7 +12,8 @@
             [muutos.impl.hook :as hook]
             [muutos.impl.lockable :refer [Lockable with-lock]]
             [muutos.impl.type :as type])
-  (:import (java.lang AutoCloseable)
+  (:import (clojure.lang IReduceInit)
+           (java.lang AutoCloseable)
            (java.util.concurrent.locks ReentrantLock)))
 
 (set! *warn-on-reflection* true)
@@ -351,8 +352,8 @@
           (client/flush client))
 
         (reify
-          clojure.lang.IReduceInit
-          (reduce [_ f init]
+          IReduceInit
+          (reduce [_ rf init]
             (loop [command-complete {}
                    row-description {}
                    data init
@@ -380,7 +381,7 @@
                     (recur command-complete row-description data ex))
 
                   :copy-data
-                  (recur command-complete row-description (f data (response :data)) ex)
+                  (recur command-complete row-description (rf data (response :data)) ex)
 
                   :copy-in
                   (do
@@ -389,7 +390,7 @@
                     (anomaly! "Not implemented: COPY ... FROM STDIN" ::anomalies/unsupported {:type type}))
 
                   :copy-both
-                  (f data (dissoc response :type))
+                  (rf data (dissoc response :type))
 
                   (:command-complete :portal-suspended :empty-query)
                   (if ex
@@ -401,7 +402,7 @@
 
                   :parameter
                   (let [parameter (response :parameter)]
-                    (recur command-complete row-description (f data parameter) ex))
+                    (recur command-complete row-description (rf data parameter) ex))
 
                   :row-description
                   (recur command-complete response data ex)
@@ -410,7 +411,7 @@
                   (let [attrs (row-description :attrs)
                         tuples (response :tuple)
                         data-row (data-row/parse attrs tuples {:query-fn (fn [qvec] (eq (client/aux client) qvec)) :key-fn key-fn :format :bin})]
-                    (recur command-complete row-description (f data data-row) ex))))))))
+                    (recur command-complete row-description (rf data data-row) ex))))))))
 
       AutoCloseable
       (close [this]
@@ -445,11 +446,13 @@
               (recur data ex))))))))
 
 (comment
-  (def pg (connect :key-fn (fn [_ attr-name] (keyword attr-name))))
-  (.close pg)
+  (def db (connect :key-fn (fn [_ attr-name] (keyword attr-name))))
+  (.close db)
 
-  (def stmt (prepare pg "SELECT bad" [(int 25) (int 25)]))
-  (def stmt (delay (prepare pg "SELECT $1 || $2" [(int 25) (int 25)])))
+  (eq db ["SELECT $1" (int-array [2])])
+
+  (def stmt (prepare db "SELECT bad" [(int 25) (int 25)]))
+  (def stmt (delay (prepare db "SELECT $1 || $2" [(int 25) (int 25)])))
   (into [] (execute (force stmt) ["a" "b"]))
   (.close @stmt)
   (instance? clojure.lang.IReduceInit stmt)
@@ -462,8 +465,30 @@
   (into [] (s ["a" "c"]))
   (.close stmt)
 
-  (def film-by-ids (prepare pg "SELECT * FROM film WHERE film_id = ANY($1)" [(int 1007)]))
-  (into [] (execute film-by-ids [(int-array 3 2)]))
+  ;; Prepare a statement that accepts one int4 array (OID 1007) as a parameter
+  (def film-by-ids
+    (prepare db "SELECT * FROM film WHERE film_id = ANY($1)" [(int 1007)]))
+
+  ;; Execute the statement. Pass int-array of [3 2] as parameter.
+  ;;
+  ;; Executing the statement returns a clojure.lang.IReduceInit, which we
+  ;; reduce into a vector using `into`.
+  (def reducible (execute film-by-ids [(int-array [3 2])]))
+
+  (into []
+    #_(halt-when (fn [film] (= "G" (:rating film))))
+    reducible)
+
+  ;; Close the prepared statement.
+  ;;
+  ;; Attempting to execute the statement after closing it yields an error like
+  ;; this:
+  ;;
+  ;;     prepared statement "m_1ba1d313-4bad-4ac9-bb5e-020c679c96ad" does not exist
+  (.close film-by-ids)
+
+  (def all-films (prepare db "SELECT * FROM film" []))
+  (into [] (execute all-films []))
   ,,,)
 
 #_{:clj-kondo/ignore [:unused-binding]}
