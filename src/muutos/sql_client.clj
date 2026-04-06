@@ -297,6 +297,7 @@
     (client/flush client))
 
   (reify
+    ;; TODO: Implement Seqable?
     IReduceInit
     (reduce [_ rf init]
       (unreduced
@@ -459,12 +460,15 @@
      (reify
        IFn
        (invoke [this] (exec client stmt-name []))
-       (invoke [_ arg1] (exec client stmt-name [arg1]))
-       (invoke [_ arg1 arg2] (exec client stmt-name [arg1 arg2]))
-       (invoke [_ arg1 arg2 arg3] (exec client stmt-name [arg1 arg2 arg3]))
-       (invoke [_ arg1 arg2 arg3 arg4] (exec client stmt-name [arg1 arg2 arg3 arg4]))
-       (invoke [_ arg1 arg2 arg3 arg4 arg5] (exec client stmt-name [arg1 arg2 arg3 arg4 arg5]))
-       (invoke [_ arg1 arg2 arg3 arg4 arg5 arg6] (exec client stmt-name [arg1 arg2 arg3 arg4 arg5 arg6]))
+       (invoke [_ a1] (exec client stmt-name [a1]))
+       (invoke [_ a1 a2] (exec client stmt-name [a1 a2]))
+       (invoke [_ a1 a2 a3] (exec client stmt-name [a1 a2 a3]))
+       (invoke [_ a1 a2 a3 a4] (exec client stmt-name [a1 a2 a3 a4]))
+       (invoke [_ a1 a2 a3 a4 a5] (exec client stmt-name [a1 a2 a3 a4 a5]))
+       (invoke [_ a1 a2 a3 a4 a5 a6] (exec client stmt-name [a1 a2 a3 a4 a5 a6]))
+       (invoke [_ a1 a2 a3 a4 a5 a6 a7] (exec client stmt-name [a1 a2 a3 a4 a5 a6 a7]))
+       (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8] (exec client stmt-name [a1 a2 a3 a4 a5 a6 a7 a8]))
+       ;; TODO: Support any number of arguments (now only 0-8).
 
        AutoCloseable
        (close [this] (close-stmt client stmt-name))))))
@@ -476,16 +480,31 @@
   (prepare db "SELECT bad" [(int 25) (int 25)])
 
   ;; Prepare a statement that accepts one int4 array (OID 1007) as a parameter
-  (def film-by-ids
-    (prepare db "SELECT * FROM film WHERE film_id = ANY($1)"))
+  (def films-by-ids
+    (delay (prepare db "SELECT * FROM film WHERE film_id = ANY($1)")))
 
   ;; Execute the statement. Pass int-array of [3 2] as parameter.
   ;;
   ;; Executing the statement returns a clojure.lang.IReduceInit, which we
   ;; reduce into a vector using `into`.
+  (into [] ((force films-by-ids) (int-array [1])))
+
   (into []
     #_(halt-when (fn [film] (= "G" (:rating film))))
-    (film-by-ids (int-array [3 2])))
+    (films-by-ids (int-array [4])))
+
+  (vec (films-by-ids (int-array [4])))
+  (vec (films-by-ids (int-array [5])))
+  (seq (films-by-ids (int-array [5])))
+
+  (def sum
+    (prepare db "SELECT $1 + $2 + $3 + $4 + $5 + $6 AS n" {:oids [(int 20) (int 20) (int 20) (int 20) (int 20) (int 20)]}))
+
+  (.close sum)
+
+  (into [] (sum 1 2 3 4 5 6))
+  (into [] (sum 7 8 9 10 11 12))
+  (into [] (sum 7 8 9 10 11 12 13))
 
   ;; Close the prepared statement.
   ;;
