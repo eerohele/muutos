@@ -317,3 +317,26 @@
 
 (bench/quick-bench
   (assert (= films (into [] (film-by-id (int 1))))))
+
+(def q-films-by-ids
+  "SELECT release_year,
+          length,
+          TRIM(language.name) AS language,
+          title,
+          rating,
+          description,
+          rental_rate,
+          replacement_cost
+   FROM film
+   JOIN language ON language.language_id = film.language_id
+   WHERE film.film_id = ANY($1)")
+
+(bench/quick-bench
+  (jdbc/execute! jdbc-conn-cache [(->jdbc q-films-by-ids) (int-array [1 2 3 4 5 6 7 8 9 10])]
+    {:builder-fn opt/as-unqualified-lower-maps}))
+
+(def films-by-ids (sql/prepare pg q-films-by-ids))
+
+(bench/quick-bench
+  (into []
+    (films-by-ids (int-array [1 2 3 4 5 6 7 8 9 10]))))
