@@ -291,159 +291,172 @@
   (execute [this args]))
 
 (defn prepare
-  [client query-string oids]
-  (let [statement-name (str "m_" (random-uuid))]
-    (with-lock client
-      (client/enqueue client {:type :parse :statement statement-name :query query-string :oids oids})
-      (client/enqueue client {:type :sync})
-      (client/flush client)
+  ([client query-string]
+   (prepare client query-string [(int 0)]))
+  ([client query-string oids]
+   (let [statement-name (str "m_" (random-uuid))]
+     (with-lock client
+       (client/enqueue client {:type :parse :statement statement-name :query query-string :oids oids})
+       (client/enqueue client {:type :sync})
+       (client/flush client)
 
-      (try
-        (loop [command-complete {}
-               data (transient [])
-               ex nil]
-          (let [response (client/recv client)
-                type (response :type)]
-            (case type
-              :ready-for-query
-              (if ex
-                (throw ex)
-                (with-meta (persistent! data) (dissoc command-complete :type)))
+       (try
+         (loop [command-complete {}
+                data (transient [])
+                ex nil]
+           (let [response (client/recv client)
+                 type (response :type)]
+             (case type
+               :ready-for-query
+               (if ex
+                 (throw ex)
+                 (with-meta (persistent! data) (dissoc command-complete :type)))
 
-              :read-error
-              (let [response-ex (:ex response)
-                    ex (ex-info (ex-message response-ex) (ex-data response-ex) ex)]
-                (throw ex))
+               :read-error
+               (let [response-ex (:ex response)
+                     ex (ex-info (ex-message response-ex) (ex-data response-ex) ex)]
+                 (throw ex))
 
-              :error
-              (recur command-complete data (:ex response))
+               :error
+               (recur command-complete data (:ex response))
 
-              :notice
-              (do
-                (client/log client :info ::server-notice {:notice response})
-                (recur command-complete data ex))
+               :notice
+               (do
+                 (client/log client :info ::server-notice {:notice response})
+                 (recur command-complete data ex))
 
-              (:command-complete :portal-suspended :empty-query)
-              (if ex
-                (throw ex)
-                (with-meta data (dissoc command-complete :type)))
+               (:command-complete :portal-suspended :empty-query)
+               (if ex
+                 (throw ex)
+                 (with-meta data (dissoc command-complete :type)))
 
-              (:parse-complete :close-complete)
-              (recur command-complete data ex)
+               (:parse-complete :close-complete)
+               (recur command-complete data ex)
 
-              :parameter
-              (let [parameter (response :parameter)]
-                (recur command-complete (conj! data parameter) ex)))))
-        (catch Throwable ex
-          (if (= ::error/server-error (-> ex ex-data :kind))
-            (throw ex)
-            (do
-              (AutoCloseable/.close client)
-              (anomaly! "Fatal error when reading server response; closing client to prevent protocol desynchronization" ::anomalies/fault (ex-data ex) ex))))))
+               :parameter
+               (let [parameter (response :parameter)]
+                 (recur command-complete (conj! data parameter) ex)))))
+         (catch Throwable ex
+           (if (= ::error/server-error (-> ex ex-data :kind))
+             (throw ex)
+             (do
+               (AutoCloseable/.close client)
+               (anomaly! "Fatal error when reading server response; closing client to prevent protocol desynchronization" ::anomalies/fault (ex-data ex) ex))))))
 
-    (reify
-      PreparedStatement
-      (execute [_ args]
-        (let [parameters (mapv bin/encode args)]
-          (client/enqueue client {:type :describe :target :statement :name statement-name})
-          (client/enqueue client {:type :bind :statement statement-name :portal unnamed-portal :parameters parameters})
-          (client/enqueue client {:type :execute :portal unnamed-portal :max-rows 0})
-          (client/enqueue client {:type :sync})
-          (client/flush client))
+     (reify
+       PreparedStatement
+       (execute [_ args]
+         (let [parameters (mapv bin/encode args)]
+           (client/enqueue client {:type :describe :target :statement :name statement-name})
+           (client/enqueue client {:type :bind :statement statement-name :portal unnamed-portal :parameters parameters})
+           (client/enqueue client {:type :execute :portal unnamed-portal :max-rows 0})
+           (client/enqueue client {:type :sync})
+           (client/flush client))
 
-        (reify
-          IReduceInit
-          (reduce [_ rf init]
-            (loop [command-complete {}
-                   row-description {}
-                   data init
-                   ex nil]
-              (let [response (client/recv client)
-                    {:keys [key-fn]} (client/options client)
-                    type (response :type)]
-                (case type
-                  :ready-for-query
-                  (if ex
-                    (throw ex)
-                    data)
+         (reify
+           IReduceInit
+           (reduce [_ rf init]
+             (unreduced
+               (loop [command-complete {}
+                      row-description {}
+                      data init
+                      ex nil]
+                 (let [response (client/recv client)
+                       {:keys [key-fn]} (client/options client)
+                       type (response :type)]
+                   (case type
+                     :ready-for-query
+                     (if ex
+                       (throw ex)
+                       data)
 
-                  :read-error
-                  (let [response-ex (:ex response)
-                        ex (ex-info (ex-message response-ex) (ex-data response-ex) ex)]
-                    (throw ex))
+                     :read-error
+                     (let [response-ex (:ex response)
+                           ex (ex-info (ex-message response-ex) (ex-data response-ex) ex)]
+                       (throw ex))
 
-                  :error
-                  (recur command-complete row-description data (:ex response))
+                     :error
+                     (recur command-complete row-description data (:ex response))
 
-                  :notice
-                  (do
-                    (client/log client :info ::server-notice {:notice response})
-                    (recur command-complete row-description data ex))
+                     :notice
+                     (do
+                       (client/log client :info ::server-notice {:notice response})
+                       (recur command-complete row-description data ex))
 
-                  :copy-data
-                  (recur command-complete row-description (rf data (response :data)) ex)
+                     :copy-data
+                     (recur command-complete row-description (if (reduced? data)
+                                                               data
+                                                               (rf data (response :data))) ex)
 
-                  :copy-in
-                  (do
-                    (client/enqueue client {:type :copy-done})
-                    (client/flush client)
-                    (anomaly! "Not implemented: COPY ... FROM STDIN" ::anomalies/unsupported {:type type}))
+                     :copy-in
+                     (do
+                       (client/enqueue client {:type :copy-done})
+                       (client/flush client)
+                       (anomaly! "Not implemented: COPY ... FROM STDIN" ::anomalies/unsupported {:type type}))
 
-                  :copy-both
-                  (rf data (dissoc response :type))
+                     :copy-both
+                     (if (reduced? data)
+                       data
+                       (rf data (dissoc response :type)))
 
-                  (:command-complete :portal-suspended :empty-query)
-                  (if ex
-                    (throw ex)
-                    (recur command-complete row-description data ex))
+                     (:command-complete :portal-suspended :empty-query)
+                     (if ex
+                       (throw ex)
+                       (recur command-complete row-description data ex))
 
-                  (:bind-complete :close-complete :parameter-description :copy-out :copy-done :no-data)
-                  (recur command-complete row-description data ex)
+                     (:bind-complete :close-complete :parameter-description :copy-out :copy-done :no-data)
+                     (recur command-complete row-description data ex)
 
-                  :parameter
-                  (let [parameter (response :parameter)]
-                    (recur command-complete row-description (rf data parameter) ex))
+                     :parameter
+                     (let [parameter (response :parameter)]
+                       (recur command-complete row-description (if (reduced? data)
+                                                                 data
+                                                                 (rf data parameter)) ex))
 
-                  :row-description
-                  (recur command-complete response data ex)
+                     :row-description
+                     (recur command-complete response data ex)
 
-                  :data-row
-                  (let [attrs (row-description :attrs)
-                        tuples (response :tuple)
-                        data-row (data-row/parse attrs tuples {:query-fn (fn [qvec] (eq (client/aux client) qvec)) :key-fn key-fn :format :bin})]
-                    (recur command-complete row-description (rf data data-row) ex))))))))
+                     :data-row
+                     (let [attrs (row-description :attrs)
+                           tuples (response :tuple)
+                           data-row (data-row/parse attrs tuples {:query-fn (fn [qvec] (eq (client/aux client) qvec)) :key-fn key-fn :format :bin})]
+                       (recur command-complete row-description
+                         (if (reduced? data)
+                           data
+                           (rf data data-row))
+                         ex)))))))))
 
-      AutoCloseable
-      (close [this]
-        (client/enqueue client {:type :close :target :statement :name statement-name})
-        (client/enqueue client {:type :sync})
-        (client/flush client)
+       AutoCloseable
+       (close [this]
+         (client/enqueue client {:type :close :target :statement :name statement-name})
+         (client/enqueue client {:type :sync})
+         (client/flush client)
 
-        (loop [data []
-               ex nil]
-          (let [response (client/recv client)
-                type (response :type)]
-            (case type
-              :ready-for-query
-              (if ex
-                (throw ex)
-                data)
+         (loop [data []
+                ex nil]
+           (let [response (client/recv client)
+                 type (response :type)]
+             (case type
+               :ready-for-query
+               (if ex
+                 (throw ex)
+                 data)
 
-              :read-error
-              (let [response-ex (:ex response)
-                    ex (ex-info (ex-message response-ex) (ex-data response-ex) ex)]
-                (throw ex))
+               :read-error
+               (let [response-ex (:ex response)
+                     ex (ex-info (ex-message response-ex) (ex-data response-ex) ex)]
+                 (throw ex))
 
-              :error
-              (recur data (:ex response))
+               :error
+               (recur data (:ex response))
 
-              (:command-complete :portal-suspended :empty-query)
-              (if ex
-                (throw ex)
-                data)
+               (:command-complete :portal-suspended :empty-query)
+               (if ex
+                 (throw ex)
+                 data)
 
-              :close-complete
-              (recur data ex))))))))
+               :close-complete
+               (recur data ex)))))))))
 
 (comment
   (def db (connect :key-fn (fn [_ attr-name] (keyword attr-name))))
@@ -467,7 +480,7 @@
 
   ;; Prepare a statement that accepts one int4 array (OID 1007) as a parameter
   (def film-by-ids
-    (prepare db "SELECT * FROM film WHERE film_id = ANY($1)" [(int 1007)]))
+    (prepare db "SELECT * FROM film WHERE film_id = ANY($1)"))
 
   ;; Execute the statement. Pass int-array of [3 2] as parameter.
   ;;
@@ -477,7 +490,7 @@
 
   (into []
     #_(halt-when (fn [film] (= "G" (:rating film))))
-    reducible)
+    (execute film-by-ids [(int-array [3 2])]))
 
   ;; Close the prepared statement.
   ;;
