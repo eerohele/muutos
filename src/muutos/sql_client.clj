@@ -342,6 +342,9 @@
 
      (reify
        IFn
+       (invoke [this]
+         (IFn/.invoke this []))
+
        (invoke [_ args]
          (let [parameters (mapv bin/encode args)]
            (client/enqueue client {:type :describe :target :statement :name statement-name})
@@ -469,9 +472,6 @@
   (def stmt (delay (prepare db "SELECT $1 || $2" [(int 25) (int 25)])))
   (into [] (execute (force stmt) ["a" "b"]))
   (.close @stmt)
-  (instance? clojure.lang.IReduceInit stmt)
-  (instance? AutoCloseable stmt)
-  (ifn? s)
   (def reducible (execute stmt ["a" "b"]))
   (into [] reducible)
   (reduce conj []  reducible)
@@ -487,8 +487,6 @@
   ;;
   ;; Executing the statement returns a clojure.lang.IReduceInit, which we
   ;; reduce into a vector using `into`.
-  (def reducible (film-by-ids [(int-array [3 2])]))
-
   (into []
     #_(halt-when (fn [film] (= "G" (:rating film))))
     (film-by-ids [(int-array [3 2])]))
@@ -501,8 +499,8 @@
   ;;     prepared statement "m_1ba1d313-4bad-4ac9-bb5e-020c679c96ad" does not exist
   (.close film-by-ids)
 
-  (def all-films (prepare db "SELECT * FROM film" []))
-  (into [] (execute all-films []))
+  (def all-films (prepare db "SELECT * FROM film"))
+  (into [] (all-films))
   ,,,)
 
 #_{:clj-kondo/ignore [:unused-binding]}
