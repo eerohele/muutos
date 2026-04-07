@@ -3,6 +3,7 @@
 
   Suitable for diagnostics, debugging, and low-throughput use cases."
   (:require [cognitect.anomalies :as-alias anomalies]
+            [clojure.core :as core]
             [muutos.codec.bin :as bin]
             [muutos.error :as-alias error]
             [muutos.impl.anomaly :refer [anomaly!]]
@@ -288,12 +289,13 @@
   (eq pg ["SELECT 1"])
   ,,,)
 
-(defn ^:private apply-rf [rf acc x]
+(defn ^:private rf-with [rf acc x]
   (if (reduced? acc)
     acc
     (rf acc x)))
 
 (defn ^:private -reduce [client rf init]
+  ;; FIXME: Most of this implementation is shared with eq. Consolidate?
   (let [{:keys [key-fn]} (client/options client)]
     (loop [command-complete {}
            row-description {}
@@ -321,9 +323,7 @@
             (recur command-complete row-description data ex))
 
           :copy-data
-          (recur command-complete row-description
-            (apply-rf rf data (response :data))
-            ex)
+          (recur command-complete row-description (rf-with rf data (response :data)) ex)
 
           :copy-in
           (do
@@ -332,7 +332,7 @@
             (anomaly! "Not implemented: COPY ... FROM STDIN" ::anomalies/unsupported {:type type}))
 
           :copy-both
-          (apply-rf rf data (dissoc response :type))
+          (rf-with rf data (dissoc response :type))
 
           (:command-complete :portal-suspended :empty-query)
           (if ex
@@ -344,7 +344,7 @@
 
           :parameter
           (let [parameter (response :parameter)]
-            (recur command-complete row-description (apply-rf rf data parameter) ex))
+            (recur command-complete row-description (rf-with rf data parameter) ex))
 
           :row-description
           (recur command-complete response data ex)
@@ -353,8 +353,9 @@
           (let [attrs (row-description :attrs)
                 tuples (response :tuple)
                 data-row (data-row/parse attrs tuples {:query-fn (fn [qvec] (eq (client/aux client) qvec)) :key-fn key-fn :format :bin})]
-            (recur command-complete row-description (apply-rf rf data data-row) ex)))))))
+            (recur command-complete row-description (rf-with rf data data-row) ex)))))))
 
+;; TODO: Accept parameters as varags? Perf implications, though. Also, no options.
 (defn execute
   [client stmt-name parameters]
   (let [stmt-name (name stmt-name)
@@ -366,47 +367,16 @@
     (client/flush client))
 
   (reify
+    ;; FIXME: Seqable
     IReduceInit
     (reduce [_ rf init]
       (-reduce client rf init))))
 
-(defn ^:private close-stmt [client stmt-name]
-  (client/enqueue client {:type :close :target :statement :name stmt-name})
-  (client/enqueue client {:type :sync})
-  (client/flush client)
-
-  (loop [data [] ex nil]
-    (let [response (client/recv client)
-          type (response :type)]
-      (case type
-        :ready-for-query
-        (if ex
-          (throw ex)
-          data)
-
-        :read-error
-        (let [response-ex (:ex response)
-              ex (ex-info (ex-message response-ex) (ex-data response-ex) ex)]
-          (throw ex))
-
-        :error
-        (recur data (:ex response))
-
-        (:command-complete :portal-suspended :empty-query)
-        (if ex
-          (throw ex)
-          data)
-
-        :close-complete
-        (recur data ex)))))
-
 (defn prepare
-  ([client q]
-   (prepare client (str "ms_" (random-uuid)) q))
-  ([client stmt-name q]
-   (prepare client stmt-name q {}))
-  ([client stmt-name q {:keys [oids]}]
-   (let [stmt-name (name stmt-name)]
+  (^AutoCloseable [client q]
+   (prepare client q {}))
+  (^AutoCloseable [client q {:keys [name oids]}]
+   (let [stmt-name (or (some-> name core/name) (str "ms_" (random-uuid)))]
      (with-lock client
        (client/enqueue client {:type :parse :statement stmt-name :query q :oids oids})
        (client/enqueue client {:type :sync})
@@ -469,7 +439,40 @@
        ;; TODO: Support any number of arguments (now only 0-8).
 
        AutoCloseable
-       (close [this] (close-stmt client stmt-name))))))
+       (close [this]
+         (client/enqueue client {:type :close :target :statement :name stmt-name})
+         (client/enqueue client {:type :sync})
+         (client/flush client)
+
+         (loop [data [] ex nil]
+           (let [response (client/recv client)
+                 type (response :type)]
+             (case type
+               :ready-for-query
+               (if ex
+                 (throw ex)
+                 data)
+
+               :read-error
+               (let [response-ex (:ex response)
+                     ex (ex-info (ex-message response-ex) (ex-data response-ex) ex)]
+                 (throw ex))
+
+               :error
+               (recur data (:ex response))
+
+               (:command-complete :portal-suspended :empty-query)
+               (if ex
+                 (throw ex)
+                 data)
+
+               ;; Might get one of these when closing the statement before
+               ;; executing it.
+               (:parameter-description :row-description :bind-complete :data-row)
+               (recur data ex)
+
+               :close-complete
+               (recur data ex)))))))))
 
 (comment
   ;; FIXME: Maybe instead of the current approach, make statement name
@@ -484,12 +487,13 @@
 
   ;; Prepare a statement that accepts one int4 array (OID 1007) as a parameter
   (def films-by-ids
-    (prepare db 'films-by-ids "SELECT * FROM film WHERE film_id = ANY($1)"))
+    (prepare db "SELECT * FROM film WHERE film_id = ANY($1)" {:name 'films-by-ids}))
 
   ;; Execute the statement. Pass int-array of [3 2] as parameter.
   ;;
   ;; Executing the statement returns a clojure.lang.IReduceInit, which we
   ;; reduce into a vector using `into`.
+  (into [] (execute db 'films-by-ids [(int-array [1 2 3 4 5])]))
   (into [] (execute db 'films-by-ids [(int-array [1 2 3 4 5])]))
   (seq (execute db 'films-by-ids [(int-array [1 2 3 4 5])]))
   (into [] (films-by-ids (int-array [1 2 3 4 5])))
