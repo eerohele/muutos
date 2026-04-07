@@ -295,66 +295,65 @@
 
 (defn ^:private -reduce [client rf init]
   (let [{:keys [key-fn]} (client/options client)]
-    (unreduced
-      (loop [command-complete {}
-             row-description {}
-             data init
-             ex nil]
-        (let [response (client/recv client)
-              type (response :type)]
-          (case type
-            :ready-for-query
-            (if ex
-              (throw ex)
-              data)
+    (loop [command-complete {}
+           row-description {}
+           data init
+           ex nil]
+      (let [response (client/recv client)
+            type (response :type)]
+        (case type
+          :ready-for-query
+          (if ex
+            (throw ex)
+            (unreduced data))
 
-            :read-error
-            (let [response-ex (:ex response)
-                  ex (ex-info (ex-message response-ex) (ex-data response-ex) ex)]
-              (throw ex))
+          :read-error
+          (let [response-ex (:ex response)
+                ex (ex-info (ex-message response-ex) (ex-data response-ex) ex)]
+            (throw ex))
 
-            :error
-            (recur command-complete row-description data (:ex response))
+          :error
+          (recur command-complete row-description data (:ex response))
 
-            :notice
-            (do
-              (client/log client :info ::server-notice {:notice response})
-              (recur command-complete row-description data ex))
+          :notice
+          (do
+            (client/log client :info ::server-notice {:notice response})
+            (recur command-complete row-description data ex))
 
-            :copy-data
-            (recur command-complete row-description
-              (apply-rf rf data (response :data))
-              ex)
+          :copy-data
+          (recur command-complete row-description
+            (apply-rf rf data (response :data))
+            ex)
 
-            :copy-in
-            (do
-              (client/enqueue client {:type :copy-done})
-              (client/flush client)
-              (anomaly! "Not implemented: COPY ... FROM STDIN" ::anomalies/unsupported {:type type}))
+          :copy-in
+          (do
+            (client/enqueue client {:type :copy-done})
+            (client/flush client)
+            (anomaly! "Not implemented: COPY ... FROM STDIN" ::anomalies/unsupported {:type type}))
 
-            :copy-both
-            (apply-rf rf data (dissoc response :type))
+          :copy-both
+          (apply-rf rf data (dissoc response :type))
 
-            (:command-complete :portal-suspended :empty-query)
-            (if ex
-              (throw ex)
-              (recur command-complete row-description data ex))
+          (:command-complete :portal-suspended :empty-query)
+          (if ex
+            (throw ex)
+            (recur command-complete row-description data ex))
 
-            (:bind-complete :close-complete :parameter-description :copy-out :copy-done :no-data)
-            (recur command-complete row-description data ex)
+          (:bind-complete :close-complete :parameter-description :copy-out :copy-done :no-data)
+          (recur command-complete row-description data ex)
 
-            :parameter
-            (let [parameter (response :parameter)]
-              (recur command-complete row-description (apply-rf rf data parameter) ex))
+          :parameter
+          (let [parameter (response :parameter)]
+            (recur command-complete row-description (apply-rf rf data parameter) ex))
 
-            :row-description
-            (recur command-complete response data ex)
+          :row-description
+          (recur command-complete response data ex)
 
-            :data-row
-            (let [attrs (row-description :attrs)
-                  tuples (response :tuple)
-                  data-row (data-row/parse attrs tuples {:query-fn (fn [qvec] (eq (client/aux client) qvec)) :key-fn key-fn :format :bin})]
-              (recur command-complete row-description (apply-rf rf data data-row) ex))))))))
+          :data-row
+          (let [attrs (row-description :attrs)
+                tuples (response :tuple)
+                data-row (data-row/parse attrs tuples {:query-fn (fn [qvec] (eq (client/aux client) qvec)) :key-fn key-fn :format :bin})]
+            (recur command-complete row-description (apply-rf rf data data-row) ex)))))))
 
 (defn execute
   [client stmt-name parameters]
