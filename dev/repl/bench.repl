@@ -318,6 +318,9 @@
 (bench/quick-bench
   (assert (= films (into [] (film-by-id (int 1))))))
 
+(bench/quick-bench
+  (assert (= films (sql/eq pg [q-film-by-id (int 1)]))))
+
 (def q-films-by-ids
   "SELECT release_year,
           length,

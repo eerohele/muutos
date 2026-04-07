@@ -12,7 +12,7 @@
             [muutos.impl.hook :as hook]
             [muutos.impl.lockable :refer [Lockable with-lock]]
             [muutos.impl.type :as type])
-  (:import (clojure.lang IFn IReduceInit)
+  (:import (clojure.lang IFn IReduceInit Seqable)
            (java.lang AutoCloseable)
            (java.util.concurrent.locks ReentrantLock)))
 
@@ -288,8 +288,78 @@
   (eq pg ["SELECT 1"])
   ,,,)
 
-(defn ^:private exec [client stmt-name parameters]
-  (let [parameters (mapv bin/encode parameters)]
+(defn ^:private apply-rf [rf acc x]
+  (if (reduced? acc)
+    acc
+    (rf acc x)))
+
+(defn ^:private -reduce [client rf init]
+  (let [{:keys [key-fn]} (client/options client)]
+    (unreduced
+      (loop [command-complete {}
+             row-description {}
+             data init
+             ex nil]
+        (let [response (client/recv client)
+              type (response :type)]
+          (case type
+            :ready-for-query
+            (if ex
+              (throw ex)
+              data)
+
+            :read-error
+            (let [response-ex (:ex response)
+                  ex (ex-info (ex-message response-ex) (ex-data response-ex) ex)]
+              (throw ex))
+
+            :error
+            (recur command-complete row-description data (:ex response))
+
+            :notice
+            (do
+              (client/log client :info ::server-notice {:notice response})
+              (recur command-complete row-description data ex))
+
+            :copy-data
+            (recur command-complete row-description
+              (apply-rf rf data (response :data))
+              ex)
+
+            :copy-in
+            (do
+              (client/enqueue client {:type :copy-done})
+              (client/flush client)
+              (anomaly! "Not implemented: COPY ... FROM STDIN" ::anomalies/unsupported {:type type}))
+
+            :copy-both
+            (apply-rf rf data (dissoc response :type))
+
+            (:command-complete :portal-suspended :empty-query)
+            (if ex
+              (throw ex)
+              (recur command-complete row-description data ex))
+
+            (:bind-complete :close-complete :parameter-description :copy-out :copy-done :no-data)
+            (recur command-complete row-description data ex)
+
+            :parameter
+            (let [parameter (response :parameter)]
+              (recur command-complete row-description (apply-rf rf data parameter) ex))
+
+            :row-description
+            (recur command-complete response data ex)
+
+            :data-row
+            (let [attrs (row-description :attrs)
+                  tuples (response :tuple)
+                  data-row (data-row/parse attrs tuples {:query-fn (fn [qvec] (eq (client/aux client) qvec)) :key-fn key-fn :format :bin})]
+              (recur command-complete row-description (apply-rf rf data data-row) ex))))))))
+
+(defn execute
+  [client stmt-name parameters]
+  (let [stmt-name (name stmt-name)
+        parameters (mapv bin/encode parameters)]
     (client/enqueue client {:type :describe :target :statement :name stmt-name})
     (client/enqueue client {:type :bind :statement stmt-name :portal unnamed-portal :parameters parameters})
     (client/enqueue client {:type :execute :portal unnamed-portal :max-rows 0})
@@ -297,82 +367,9 @@
     (client/flush client))
 
   (reify
-    ;; TODO: Implement Seqable?
     IReduceInit
     (reduce [_ rf init]
-      (unreduced
-        (loop [command-complete {}
-               row-description {}
-               data init
-               ex nil]
-          (let [response (client/recv client)
-                {:keys [key-fn]} (client/options client)
-                type (response :type)]
-            (case type
-              :ready-for-query
-              (if ex
-                (throw ex)
-                data)
-
-              :read-error
-              (let [response-ex (:ex response)
-                    ex (ex-info (ex-message response-ex) (ex-data response-ex) ex)]
-                (throw ex))
-
-              :error
-              (recur command-complete row-description data (:ex response))
-
-              :notice
-              (do
-                (client/log client :info ::server-notice {:notice response})
-                (recur command-complete row-description data ex))
-
-              :copy-data
-              (recur command-complete row-description
-                (if (reduced? data)
-                  data
-                  (rf data (response :data)))
-                ex)
-
-              :copy-in
-              (do
-                (client/enqueue client {:type :copy-done})
-                (client/flush client)
-                (anomaly! "Not implemented: COPY ... FROM STDIN" ::anomalies/unsupported {:type type}))
-
-              :copy-both
-              (if (reduced? data)
-                data
-                (rf data (dissoc response :type)))
-
-              (:command-complete :portal-suspended :empty-query)
-              (if ex
-                (throw ex)
-                (recur command-complete row-description data ex))
-
-              (:bind-complete :close-complete :parameter-description :copy-out :copy-done :no-data)
-              (recur command-complete row-description data ex)
-
-              :parameter
-              (let [parameter (response :parameter)]
-                (recur command-complete row-description
-                  (if (reduced? data)
-                    data
-                    (rf data parameter))
-                  ex))
-
-              :row-description
-              (recur command-complete response data ex)
-
-              :data-row
-              (let [attrs (row-description :attrs)
-                    tuples (response :tuple)
-                    data-row (data-row/parse attrs tuples {:query-fn (fn [qvec] (eq (client/aux client) qvec)) :key-fn key-fn :format :bin})]
-                (recur command-complete row-description
-                  (if (reduced? data)
-                    data
-                    (rf data data-row))
-                  ex)))))))))
+      (-reduce client rf init))))
 
 (defn ^:private close-stmt [client stmt-name]
   (client/enqueue client {:type :close :target :statement :name stmt-name})
@@ -406,9 +403,11 @@
 
 (defn prepare
   ([client q]
-   (prepare client q {}))
-  ([client q {:keys [oids]}]
-   (let [stmt-name (str "ms_" (random-uuid))]
+   (prepare client (str "ms_" (random-uuid)) q))
+  ([client stmt-name q]
+   (prepare client stmt-name q {}))
+  ([client stmt-name q {:keys [oids]}]
+   (let [stmt-name (name stmt-name)]
      (with-lock client
        (client/enqueue client {:type :parse :statement stmt-name :query q :oids oids})
        (client/enqueue client {:type :sync})
@@ -459,21 +458,26 @@
 
      (reify
        IFn
-       (invoke [this] (exec client stmt-name []))
-       (invoke [_ a1] (exec client stmt-name [a1]))
-       (invoke [_ a1 a2] (exec client stmt-name [a1 a2]))
-       (invoke [_ a1 a2 a3] (exec client stmt-name [a1 a2 a3]))
-       (invoke [_ a1 a2 a3 a4] (exec client stmt-name [a1 a2 a3 a4]))
-       (invoke [_ a1 a2 a3 a4 a5] (exec client stmt-name [a1 a2 a3 a4 a5]))
-       (invoke [_ a1 a2 a3 a4 a5 a6] (exec client stmt-name [a1 a2 a3 a4 a5 a6]))
-       (invoke [_ a1 a2 a3 a4 a5 a6 a7] (exec client stmt-name [a1 a2 a3 a4 a5 a6 a7]))
-       (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8] (exec client stmt-name [a1 a2 a3 a4 a5 a6 a7 a8]))
+       (invoke [this] (execute client stmt-name []))
+       (invoke [_ a1] (execute client stmt-name [a1]))
+       (invoke [_ a1 a2] (execute client stmt-name [a1 a2]))
+       (invoke [_ a1 a2 a3] (execute client stmt-name [a1 a2 a3]))
+       (invoke [_ a1 a2 a3 a4] (execute client stmt-name [a1 a2 a3 a4]))
+       (invoke [_ a1 a2 a3 a4 a5] (execute client stmt-name [a1 a2 a3 a4 a5]))
+       (invoke [_ a1 a2 a3 a4 a5 a6] (execute client stmt-name [a1 a2 a3 a4 a5 a6]))
+       (invoke [_ a1 a2 a3 a4 a5 a6 a7] (execute client stmt-name [a1 a2 a3 a4 a5 a6 a7]))
+       (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8] (execute client stmt-name [a1 a2 a3 a4 a5 a6 a7 a8]))
        ;; TODO: Support any number of arguments (now only 0-8).
 
        AutoCloseable
        (close [this] (close-stmt client stmt-name))))))
 
 (comment
+  ;; FIXME: Maybe instead of the current approach, make statement name
+  ;; (keyword? symbol?) mandatory and force the user to use that to refer to
+  ;; the client-side prepared statement. That way maybe the user could just
+  ;; prepare all statements upon connection, then use the name to refer to
+  ;; them when calling?
   (def db (connect :key-fn (fn [_ attr-name] (keyword attr-name))))
   (.close db)
 
@@ -481,13 +485,15 @@
 
   ;; Prepare a statement that accepts one int4 array (OID 1007) as a parameter
   (def films-by-ids
-    (delay (prepare db "SELECT * FROM film WHERE film_id = ANY($1)")))
+    (prepare db 'films-by-ids "SELECT * FROM film WHERE film_id = ANY($1)"))
 
   ;; Execute the statement. Pass int-array of [3 2] as parameter.
   ;;
   ;; Executing the statement returns a clojure.lang.IReduceInit, which we
   ;; reduce into a vector using `into`.
-  (into [] ((force films-by-ids) (int-array [1])))
+  (into [] (execute db 'films-by-ids [(int-array [1 2 3 4 5])]))
+  (seq (execute db 'films-by-ids [(int-array [1 2 3 4 5])]))
+  (into [] (films-by-ids (int-array [1 2 3 4 5])))
 
   (into []
     #_(halt-when (fn [film] (= "G" (:rating film))))
@@ -498,10 +504,11 @@
   (seq (films-by-ids (int-array [5])))
 
   (def sum
-    (prepare db "SELECT $1 + $2 + $3 + $4 + $5 + $6 AS n" {:oids [(int 20) (int 20) (int 20) (int 20) (int 20) (int 20)]}))
+    (prepare db 'sum "SELECT $1 + $2 + $3 + $4 + $5 + $6 AS n" {:oids [(int 20) (int 20) (int 20) (int 20) (int 20) (int 20)]}))
 
   (.close sum)
 
+  (into [] (execute db 'sum [1 2 3 4 5 6]))
   (into [] (sum 1 2 3 4 5 6))
   (into [] (sum 7 8 9 10 11 12))
   (into [] (sum 7 8 9 10 11 12 13))
