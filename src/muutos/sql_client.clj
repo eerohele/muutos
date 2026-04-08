@@ -427,7 +427,7 @@
 
      (reify
        IFn
-       (invoke [this] (execute client stmt-name []))
+       (invoke [_] (execute client stmt-name []))
        (invoke [_ a1] (execute client stmt-name [a1]))
        (invoke [_ a1 a2] (execute client stmt-name [a1 a2]))
        (invoke [_ a1 a2 a3] (execute client stmt-name [a1 a2 a3]))
