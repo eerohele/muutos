@@ -181,6 +181,7 @@
                       n))]
 
       (when (pos? n)
+        ;; FIXME: :flush instead of :sync? :sync does more -- unnecessarily so?
         (client/enqueue client {:type :sync})
         (client/flush client)
 
@@ -301,18 +302,12 @@
            row-description {}
            data init
            ex nil]
-      (let [response (client/recv client)
-            type (response :type)]
+      (let [{:keys [type] :as response} (client/recv client)]
         (case type
           :ready-for-query
           (if ex
             (throw ex)
             (unreduced data))
-
-          :read-error
-          (let [response-ex (:ex response)
-                ex (ex-info (ex-message response-ex) (ex-data response-ex) ex)]
-            (throw ex))
 
           :error
           (recur command-complete row-description data (:ex response))
@@ -372,6 +367,13 @@
     (reduce [_ rf init]
       (-reduce client rf init))))
 
+(defn ^:private handle-error! [client ex]
+  (if (= ::error/server-error (-> ex ex-data :kind))
+    (throw ex)
+    (do
+      (AutoCloseable/.close client)
+      (anomaly! "Fatal error when reading server response; closing client to prevent protocol desynchronization" ::anomalies/fault (ex-data ex) ex))))
+
 (defn prepare
   (^AutoCloseable [client q]
    (prepare client q {}))
@@ -379,51 +381,23 @@
    (let [stmt-name (or (some-> name core/name) (str "ms_" (random-uuid)))]
      (with-lock client
        (client/enqueue client {:type :parse :statement stmt-name :query q :oids oids})
-       (client/enqueue client {:type :sync})
+       (client/enqueue client {:type :flush})
        (client/flush client)
 
-       (try
-         (loop [command-complete {}
-                data (transient [])
-                ex nil]
-           (let [response (client/recv client)
-                 type (response :type)]
-             (case type
-               :ready-for-query
-               (if ex
-                 (throw ex)
-                 (with-meta (persistent! data) (dissoc command-complete :type)))
+       (let [{:keys [type] :as response} (client/recv client)]
+         (case type
+           :parse-complete response
 
-               :read-error
-               (let [response-ex (:ex response)
-                     ex (ex-info (ex-message response-ex) (ex-data response-ex) ex)]
-                 (throw ex))
+           :error
+           (do
+             (client/enqueue client {:type :sync})
+             (client/flush client)
 
-               :error
-               (recur command-complete data (:ex response))
-
-               :notice
-               (do
-                 (client/log client :info ::server-notice {:notice response})
-                 (recur command-complete data ex))
-
-               (:command-complete :portal-suspended :empty-query)
-               (if ex
-                 (throw ex)
-                 (with-meta data (dissoc command-complete :type)))
-
-               (:parse-complete :close-complete)
-               (recur command-complete data ex)
-
-               :parameter
-               (let [parameter (response :parameter)]
-                 (recur command-complete (conj! data parameter) ex)))))
-         (catch Throwable ex
-           (if (= ::error/server-error (-> ex ex-data :kind))
-             (throw ex)
-             (do
-               (AutoCloseable/.close client)
-               (anomaly! "Fatal error when reading server response; closing client to prevent protocol desynchronization" ::anomalies/fault (ex-data ex) ex))))))
+             (let [ex (response :ex)
+                   {:keys [type]} (client/recv client)]
+               (case type
+                 :ready-for-query
+                 (handle-error! client ex)))))))
 
      (reify
        IFn
@@ -444,35 +418,22 @@
          (client/enqueue client {:type :sync})
          (client/flush client)
 
-         (loop [data [] ex nil]
-           (let [response (client/recv client)
-                 type (response :type)]
+         (loop [ex nil]
+           (let [{:keys [type] :as response} (client/recv client)]
              (case type
                :ready-for-query
-               (if ex
-                 (throw ex)
-                 data)
-
-               :read-error
-               (let [response-ex (:ex response)
-                     ex (ex-info (ex-message response-ex) (ex-data response-ex) ex)]
-                 (throw ex))
+               (when ex (throw ex))
 
                :error
-               (recur data (:ex response))
-
-               (:command-complete :portal-suspended :empty-query)
-               (if ex
-                 (throw ex)
-                 data)
+               (recur (:ex response))
 
                ;; Might get one of these when closing the statement before
                ;; executing it.
                (:parameter-description :row-description :bind-complete :data-row)
-               (recur data ex)
+               (recur ex)
 
                :close-complete
-               (recur data ex)))))))))
+               (recur ex)))))))))
 
 (comment
   ;; FIXME: Maybe instead of the current approach, make statement name

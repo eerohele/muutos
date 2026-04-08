@@ -34,11 +34,11 @@
 
 (defn ^:private key-fn [_ attr-name] (keyword attr-name))
 
-(defn connect-test ^AutoCloseable [& {:as opts}]
+(defn $ ^AutoCloseable [& {:as opts}]
   (connect (merge {:database "test" :key-fn key-fn :host (host @server) :port (port @server)} opts)))
 
 (deftest infer
-  (with-open [pg (connect-test)
+  (with-open [pg ($)
               ;; Without :oids, Muutos passes 0, telling PostgreSQL to infer parameter types.
               oid-by-category (sql/prepare pg "SELECT oid FROM pg_type WHERE typcategory = ANY($1)")]
     (is (set/subset? #{{:oid 16}
@@ -52,12 +52,12 @@
           (into #{} (oid-by-category (char-array [\B \Z])))))))
 
 (deftest explicit-oids
-  (with-open [pg (connect-test)
+  (with-open [pg ($)
               sum (sql/prepare pg "SELECT $1 + $2 AS n" {:oids [(int 20) (int 20)]})]
     (is (= [{:n 3}] (into [] (sum 1 2))))))
 
 (deftest xform
-  (with-open [pg (connect-test)
+  (with-open [pg ($)
               _ (sql/prepare pg "SELECT oid FROM pg_type WHERE typcategory = ANY($1)" {:name 'oid-by-category})]
     (is (set/subset? #{32 36 388}
           (into #{}
@@ -67,7 +67,7 @@
             (sql/execute pg 'oid-by-category (char-array [\B \Z])))))))
 
 (deftest xform-reducible
-  (with-open [pg (connect-test)
+  (with-open [pg ($)
               oid-by-category (sql/prepare pg "SELECT oid FROM pg_type WHERE typcategory = ANY($1)" {:name 'oid-by-category})]
     (is (= {:oid 3361}
           (transduce
@@ -76,8 +76,8 @@
             {}
             (oid-by-category (char-array [\B \Z])))))))
 
-(deftest close
-  (with-open [pg (connect-test)]
+(deftest close-by-name
+  (with-open [pg ($)]
     (with-open [sum (sql/prepare pg "SELECT $1 + $2 AS n" {:name 'sum :oids [(int 20) (int 20)]})]
       (is (= [{:n 3}] (into [] (sum 1 2))))
       (is (= [{:n 7}] (into [] (sql/execute pg 'sum 3 4)))))
@@ -87,10 +87,75 @@
                                       :error-code "26000"
                                       :kind ::error/server-error
                                       :severity "ERROR"}
-          (into [] (sql/execute pg 'sum 1 2))))))
+          (prn (into [] (sql/execute pg 'sum 1 2)))))))
+
+(deftest close-fn
+  (with-open [pg ($)]
+    (let [sum (sql/prepare pg "SELECT $1 + $2 AS n" {:name 'sum :oids [(int 20) (int 20)]})]
+      (AutoCloseable/.close sum)
+      (is (thrown-match? ExceptionInfo {:cause :ERRCODE-UNDEFINED-PSTATEMENT
+                                        :error-code "26000"
+                                        :kind ::error/server-error
+                                        :severity "ERROR"}
+            (into [] (sum 1 2)))))))
 
 (deftest close-before-execute
-  (with-open [pg (connect-test)
+  (with-open [pg ($)
               sum (sql/prepare pg "SELECT $1 + $2 AS n" {:oids [(int 20) (int 20)]})]
     ;; Closing a prepared statement that hasn't been executed doesn't throw.
-    (is (instance? IReduceInit (sum 1 2)))))
+    ))
+
+(deftest parse-error
+  (with-open [pg ($)]
+    (is (thrown-match? ExceptionInfo {:cause :undefined-column
+                                      :error-code "42703"
+                                      :kind ::error/server-error
+                                      :severity "ERROR"}
+          (sql/prepare pg "SELECT bad")))
+
+    ;; No protocol desynchronization
+    (is (= [{:n 1}] (eq pg ["SELECT $1 AS n" 1])))
+
+    #_(with-open [sum (sql/prepare pg "SELECT $1 + $2 AS n" {:oids [(int 20) (int 20)]})]
+      (is (= #{{:n 3}} (into #{} (sum 1 2)))))))
+
+(deftest protocol-violation
+  (with-open [pg ($)
+              sum (sql/prepare pg "SELECT $1 + $2 AS n" {:oids [(int 20) (int 20)]})]
+    (is (thrown-match? {:cause :protocol-violation
+                        :error-code "08P01"
+                        :kind ::error/server-error
+                        :severity "ERROR"}
+          (into [] (sum 1))))
+
+    ;; No protocol desynchronization
+    (is (= [{:n 3}] (into [] (sum 1 2))))))
+
+(def q-raise-notice
+  "CREATE OR REPLACE FUNCTION pg_temp.raise_notice(msg TEXT) RETURNS void AS $$
+   BEGIN
+     RAISE NOTICE '%', msg;
+   END;
+   $$ LANGUAGE plpgsql")
+
+(deftest notice
+  (with-open [pg ($)]
+    (eq pg [q-raise-notice])
+
+    (let [notice (sql/prepare pg "SELECT pg_temp.raise_notice($1)")]
+      ;; Not quite sure only logging is the best way to handle them. Could
+      ;; maybe allow users to pass a callback that gets called on notices.
+      (is (= [{}] (into [] (notice "Hello, world!")))))))
+
+(deftest empty-query
+  (with-open [pg ($)]
+    (eq pg [q-raise-notice])
+
+    (let [void (sql/prepare pg "")]
+      (is (= [] (into [] (void)))))))
+
+(deftest parameter
+  (with-open [pg ($)
+              set-time-zone (sql/prepare pg "SET TIME ZONE 'Europe/Helsinki'")]
+    (is (= [["TimeZone" "Europe/Helsinki"]] (into [] (set-time-zone))))
+    (is (= [{:n 1}] (eq pg ["SELECT 1 AS n"])))))
