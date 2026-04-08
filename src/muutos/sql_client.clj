@@ -357,7 +357,7 @@
 
 ;; TODO: Accept parameters as varags? Perf implications, though. Also, no options.
 (defn execute
-  [client stmt-name parameters]
+  [client stmt-name & parameters]
   (let [stmt-name (name stmt-name)
         parameters (mapv bin/encode parameters)]
     (client/enqueue client {:type :describe :target :statement :name stmt-name})
@@ -427,19 +427,19 @@
 
      (reify
        IFn
-       (invoke [_] (execute client stmt-name []))
-       (invoke [_ a1] (execute client stmt-name [a1]))
-       (invoke [_ a1 a2] (execute client stmt-name [a1 a2]))
-       (invoke [_ a1 a2 a3] (execute client stmt-name [a1 a2 a3]))
-       (invoke [_ a1 a2 a3 a4] (execute client stmt-name [a1 a2 a3 a4]))
-       (invoke [_ a1 a2 a3 a4 a5] (execute client stmt-name [a1 a2 a3 a4 a5]))
-       (invoke [_ a1 a2 a3 a4 a5 a6] (execute client stmt-name [a1 a2 a3 a4 a5 a6]))
-       (invoke [_ a1 a2 a3 a4 a5 a6 a7] (execute client stmt-name [a1 a2 a3 a4 a5 a6 a7]))
-       (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8] (execute client stmt-name [a1 a2 a3 a4 a5 a6 a7 a8]))
+       (invoke [_] (execute client stmt-name))
+       (invoke [_ a1] (execute client stmt-name a1))
+       (invoke [_ a1 a2] (execute client stmt-name a1 a2))
+       (invoke [_ a1 a2 a3] (execute client stmt-name a1 a2 a3))
+       (invoke [_ a1 a2 a3 a4] (execute client stmt-name a1 a2 a3 a4))
+       (invoke [_ a1 a2 a3 a4 a5] (execute client stmt-name a1 a2 a3 a4 a5))
+       (invoke [_ a1 a2 a3 a4 a5 a6] (execute client stmt-name a1 a2 a3 a4 a5 a6))
+       (invoke [_ a1 a2 a3 a4 a5 a6 a7] (execute client stmt-name a1 a2 a3 a4 a5 a6 a7))
+       (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8] (execute client stmt-name a1 a2 a3 a4 a5 a6 a7 a8))
        ;; TODO: Support any number of arguments (now only 0-8).
 
        AutoCloseable
-       (close [this]
+       (close [_]
          (client/enqueue client {:type :close :target :statement :name stmt-name})
          (client/enqueue client {:type :sync})
          (client/flush client)

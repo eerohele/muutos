@@ -3,7 +3,7 @@
             [clojure.test :refer [deftest is use-fixtures]]
             [cognitect.anomalies :as-alias anomalies]
             [matcher-combinators.test]
-            [muutos.sql-client :refer [connect eq prepare] :as sut]
+            [muutos.sql-client :refer [connect eq] :as sql]
             [muutos.error :as-alias error]
             [muutos.test.server :as server :refer [host port]]
             [muutos.type])
@@ -40,7 +40,7 @@
 (deftest infer
   (with-open [pg (connect-test)
               ;; Without :oids, Muutos passes 0, telling PostgreSQL to infer parameter types.
-              oid-by-category (prepare pg "SELECT oid FROM pg_type WHERE typcategory = ANY($1)")]
+              oid-by-category (sql/prepare pg "SELECT oid FROM pg_type WHERE typcategory = ANY($1)")]
     (is (set/subset? #{{:oid 16}
                        {:oid 18}
                        {:oid 194}
@@ -53,22 +53,22 @@
 
 (deftest explicit-oids
   (with-open [pg (connect-test)
-              sum (prepare pg "SELECT $1 + $2 AS n" {:oids [(int 20) (int 20)]})]
+              sum (sql/prepare pg "SELECT $1 + $2 AS n" {:oids [(int 20) (int 20)]})]
     (is (= [{:n 3}] (into [] (sum 1 2))))))
 
 (deftest xform
   (with-open [pg (connect-test)
-              _ (prepare pg "SELECT oid FROM pg_type WHERE typcategory = ANY($1)" {:name 'oid-by-category})]
+              _ (sql/prepare pg "SELECT oid FROM pg_type WHERE typcategory = ANY($1)" {:name 'oid-by-category})]
     (is (set/subset? #{32 36 388}
           (into #{}
             (comp
               (filter (fn [{:keys [oid]}] (< oid 1000)))
               (map (fn [{:keys [oid]}] (* 2 oid))))
-            (sut/execute pg 'oid-by-category [(char-array [\B \Z])]))))))
+            (sql/execute pg 'oid-by-category (char-array [\B \Z])))))))
 
 (deftest xform-reducible
   (with-open [pg (connect-test)
-              oid-by-category (prepare pg "SELECT oid FROM pg_type WHERE typcategory = ANY($1)" {:name 'oid-by-category})]
+              oid-by-category (sql/prepare pg "SELECT oid FROM pg_type WHERE typcategory = ANY($1)" {:name 'oid-by-category})]
     (is (= {:oid 3361}
           (transduce
             (halt-when (fn [{:keys [oid]}] (> oid 1000)))
@@ -78,19 +78,19 @@
 
 (deftest close
   (with-open [pg (connect-test)]
-    (with-open [sum (prepare pg "SELECT $1 + $2 AS n" {:name 'sum :oids [(int 20) (int 20)]})]
+    (with-open [sum (sql/prepare pg "SELECT $1 + $2 AS n" {:name 'sum :oids [(int 20) (int 20)]})]
       (is (= [{:n 3}] (into [] (sum 1 2))))
-      (is (= [{:n 7}] (into [] (sut/execute pg 'sum [3 4])))))
+      (is (= [{:n 7}] (into [] (sql/execute pg 'sum 3 4)))))
 
     ;; Prepared statement is closed, attempting to call it (by name) throws.
     (is (thrown-match? ExceptionInfo {:cause :ERRCODE-UNDEFINED-PSTATEMENT
                                       :error-code "26000"
                                       :kind ::error/server-error
                                       :severity "ERROR"}
-          (into [] (sut/execute pg 'sum [1 2]))))))
+          (into [] (sql/execute pg 'sum 1 2))))))
 
 (deftest close-before-execute
   (with-open [pg (connect-test)
-              sum (prepare pg "SELECT $1 + $2 AS n" {:oids [(int 20) (int 20)]})]
+              sum (sql/prepare pg "SELECT $1 + $2 AS n" {:oids [(int 20) (int 20)]})]
     ;; Closing a prepared statement that hasn't been executed doesn't throw.
     (is (instance? IReduceInit (sum 1 2)))))
