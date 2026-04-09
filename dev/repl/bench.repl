@@ -316,7 +316,7 @@
 (def film-by-id (sql/prepare pg q-film-by-id {:name 'film-by-id}))
 
 (bench/quick-bench
-  (assert (= films (into [] (sql/execute pg 'film-by-id (int 1))))))
+  (assert (= films (into [] (film-by-id (int 1))))))
 
 (bench/quick-bench
   (assert (= films (sql/eq pg [q-film-by-id (int 1)]))))
@@ -338,7 +338,7 @@
   (jdbc/execute! jdbc-conn-cache [(->jdbc q-films-by-ids) (int-array [1 2 3 4 5 6 7 8 9 10])]
     {:builder-fn opt/as-unqualified-lower-maps}))
 
-(def films-by-ids (sql/prepare pg q-films-by-ids))
+(def films-by-ids (sql/prepare pg q-films-by-ids {:name 'films-by-ids}))
 
 (bench/quick-bench
   (into [] (films-by-ids (int-array [1 2 3 4 5 6 7 8 9 10]))))

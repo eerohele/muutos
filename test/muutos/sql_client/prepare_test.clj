@@ -58,13 +58,13 @@
 
 (deftest xform
   (with-open [pg ($)
-              _ (sql/prepare pg "SELECT oid FROM pg_type WHERE typcategory = ANY($1)" {:name 'oid-by-category})]
+              oid-by-category (sql/prepare pg "SELECT oid FROM pg_type WHERE typcategory = ANY($1)" {:name 'oid-by-category})]
     (is (set/subset? #{32 36 388}
           (into #{}
             (comp
               (filter (fn [{:keys [oid]}] (< oid 1000)))
               (map (fn [{:keys [oid]}] (* 2 oid))))
-            (sql/execute pg 'oid-by-category (char-array [\B \Z])))))))
+            (oid-by-category (char-array [\B \Z])))))))
 
 (deftest xform-reducible
   (with-open [pg ($)
@@ -78,16 +78,15 @@
 
 (deftest close-by-name
   (with-open [pg ($)]
-    (with-open [sum (sql/prepare pg "SELECT $1 + $2 AS n" {:name 'sum :oids [(int 20) (int 20)]})]
-      (is (= [{:n 3}] (into [] (sum 1 2))))
-      (is (= [{:n 7}] (into [] (sql/execute pg 'sum 3 4)))))
+    (let [sum (sql/prepare pg "SELECT $1 + $2 AS n" {:name 'sum :oids [(int 20) (int 20)]})]
+      (.close sum)
 
-    ;; Prepared statement is closed, attempting to call it (by name) throws.
-    (is (thrown-match? ExceptionInfo {:cause :ERRCODE-UNDEFINED-PSTATEMENT
-                                      :error-code "26000"
-                                      :kind ::error/server-error
-                                      :severity "ERROR"}
-          (prn (into [] (sql/execute pg 'sum 1 2)))))))
+      ;; Prepared statement is closed, attempting to call it throws.
+      (is (thrown-match? ExceptionInfo {:cause :ERRCODE-UNDEFINED-PSTATEMENT
+                                        :error-code "26000"
+                                        :kind ::error/server-error
+                                        :severity "ERROR"}
+            (into [] (sum 1 2)))))))
 
 (deftest close-fn
   (with-open [pg ($)]
@@ -190,3 +189,19 @@
   (with-open [pg ($)
               no-data (sql/prepare pg "SELECT FROM pg_type WHERE FALSE")]
     (is (= [] (into [] (no-data))))))
+
+;; TODO
+#_(deftest alter-table
+    (with-open [pg ($)]
+      (eq pg
+        ["CREATE TABLE t (id int PRIMARY KEY, a int)"]
+        ["INSERT INTO t (id, a) VALUES (1, 10)"])
+
+      (with-open [a-by-id (sql/prepare pg "SELECT * FROM t WHERE id = ANY($1)")]
+        (is (= [{:id 1 :a 10}] (into [] (a-by-id (int-array [1])))))
+
+        (eq pg
+          ["ALTER TABLE t ADD COLUMN b int"]
+          ["INSERT INTO t (id, a, b) VALUES (2, 20, 200)"])
+
+        (is (= [{:id 1 :a 10}] (into [] (a-by-id (int-array [1]))))))))

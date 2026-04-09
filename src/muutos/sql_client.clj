@@ -346,7 +346,7 @@
             (recur command-complete (rf-with rf data data-row) ex)))))))
 
 ;; TODO: Accept parameters as varags? Perf implications, though. Also, no options.
-(defn execute
+(defn ^:private execute
   [client stmt-name row-description & parameters]
   (let [stmt-name (name stmt-name)
         parameters (mapv bin/encode parameters)]
@@ -454,7 +454,10 @@
   (into [] (execute db 'films-by-ids [(int-array [1 2 3 4 5])]))
   (into [] (execute db 'films-by-ids [(int-array [1 2 3 4 5])]))
   (seq (execute db 'films-by-ids [(int-array [1 2 3 4 5])]))
+
+  (sq db "BEGIN TRANSACTION")
   (into [] (films-by-ids (int-array [1 2 3 4 5])))
+  (sq db "COMMIT")
 
   (into []
     #_(halt-when (fn [film] (= "G" (:rating film))))
