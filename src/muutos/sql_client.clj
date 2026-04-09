@@ -374,6 +374,7 @@
    (let [stmt-name (or (some-> name core/name) (str "ms_" (random-uuid)))]
      (with-lock client
        (client/enqueue client {:type :parse :statement stmt-name :query q :oids oids})
+       ;; FIXME: :describe here instead of in :execute?
        (client/enqueue client {:type :sync})
        (client/flush client)
 
