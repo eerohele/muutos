@@ -194,17 +194,20 @@
               no-data (sql/prepare pg "SELECT FROM pg_type WHERE FALSE")]
     (is (= [] (into [] (no-data))))))
 
+(def ^:private q-t-by-ids
+  "SELECT * FROM t WHERE id = ANY($1) ORDER BY a ASC")
+
 (deftest table
   (with-open [pg ($)]
     (eq pg
       ["CREATE TABLE t (id int PRIMARY KEY, a int)"]
       ["INSERT INTO t (id, a) VALUES (1, 10), (2, 20), (3, 30)"])
 
-    (with-open [as-by-ids (sql/prepare pg "SELECT * FROM t WHERE id = ANY($1) ORDER BY a ASC")]
+    (with-open [t-by-ids (sql/prepare pg q-t-by-ids)]
       (is (= [{:id 1 :a 10}
               {:id 2 :a 20}
               {:id 3 :a 30}]
-            (into [] (as-by-ids (int-array [1 2 3]))))))))
+            (into [] (t-by-ids (int-array [1 2 3]))))))))
 
 (deftest interlace
   (with-open [pg ($)
@@ -230,12 +233,27 @@
       ["CREATE TABLE t (id int PRIMARY KEY, a int)"]
       ["INSERT INTO t (id, a) VALUES (1, 10)"])
 
-    (with-open [as-by-ids (sql/prepare pg "SELECT * FROM t WHERE id = ANY($1) ORDER BY a ASC")]
-      (is (= [{:id 1 :a 10}] (into [] (as-by-ids (int-array [1])))))
+    (with-open [t-by-ids (sql/prepare pg q-t-by-ids)]
+      (is (= [{:id 1 :a 10}] (into [] (t-by-ids (int-array [1])))))
 
       (eq pg
         ["ALTER TABLE t ADD COLUMN b int"]
+        ["UPDATE t SET b = 100 WHERE id = 1"]
         ["INSERT INTO t (id, a, b) VALUES (2, 20, 200)"])
 
       ;; Statement that works after ALTER
-      (is (= [{:a 10 :id 1} {:a 20 :id 2}] (into [] (as-by-ids (int-array [1 2]))))))))
+      (is (= [{:id 1 :a 10 :b 100}
+              {:id 2 :a 20 :b 200}]
+            (into [] (t-by-ids (int-array [1 2])))
+            (eq pg [q-t-by-ids (int-array [1 2])])))
+
+      (eq pg ["ALTER TABLE t DROP COLUMN a"])
+
+      (is (thrown-match? ExceptionInfo {:cause :undefined-column
+                                        :error-code "42703"
+                                        :kind ::error/server-error
+                                        :severity "ERROR"}
+            (into [] (t-by-ids (int-array [1 2])))))
+
+      ;; No protocol desynchronization
+      (is (= [{:b 100 :id 1} {:b 200 :id 2}] (eq pg ["SELECT * FROM t"]))))))

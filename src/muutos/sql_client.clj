@@ -327,6 +327,9 @@
     (client/enqueue client {:type :sync})
     (client/flush client)))
 
+(defprotocol ^:private PreparedStatement
+  (^:private attributes [this]))
+
 ;; FIXME: Make sure prepare (when using IFn) is compatible with transactions!
 (defn prepare
   (^AutoCloseable [client q]
@@ -366,61 +369,64 @@
                  ;; FIXME: Add Seqable
                  IReduceInit
                  (reduce [_ rf init]
-                   (execute client stmt-name parameters)
+                   (with-lock client
+                     (execute client stmt-name parameters)
 
-                   ;; FIXME: If PostgreSQL returns error "0A000" (cached plan has
-                   ;; changed), re-prepare same statement and retry.
-                   (loop [command-complete {}
-                          data init
-                          ex nil]
-                     (let [{:keys [type] :as response} (client/recv client)]
-                       (case type
-                         :ready-for-query
-                         (cond
-                           (= "0A000" (-> ex ex-data :error-code))
+                     (loop [attrs attrs
+                            data init
+                            ex nil]
+                       (let [{:keys [type] :as response} (client/recv client)]
+                         (case type
+                           :ready-for-query
+                           (cond
+                             ;; If PostgreSQL returns an error that indicates that the cached plan
+                             ;; has changed (e.g. because someone has executed ALTER TABLE on a
+                             ;; table the prepared statement uses), re-prepare the statement, then
+                             ;; retry.
+                             (-> ex ex-data :error-code (= "0A000"))
+                             (do
+                               (close-statement client stmt-name)
+                               (let [stmt (prepare client q {:name stmt-name :oids oids})]
+                                 (execute client stmt-name parameters)
+                                 (recur (attributes stmt) data nil)))
+
+                             ex (throw ex)
+
+                             :else (unreduced data))
+
+                           :error
+                           (recur attrs data (:ex response))
+
+                           :notice
                            (do
-                             (close-statement client stmt-name)
-                             (prepare client q {:name stmt-name :oids oids})
-                             (execute client stmt-name parameters)
-                             (recur command-complete data nil))
+                             (client/log client :info ::server-notice {:notice response})
+                             (recur attrs data ex))
 
-                           ex (throw ex)
-                           :else (unreduced data))
+                           :copy-data
+                           (recur attrs (rf-with rf data (response :data)) ex)
 
-                         :error
-                         (recur command-complete data (:ex response))
+                           :copy-in
+                           (do
+                             (client/enqueue client {:type :copy-done})
+                             (client/flush client)
+                             (anomaly! "Not implemented: COPY ... FROM STDIN" ::anomalies/unsupported {:type type}))
 
-                         :notice
-                         (do
-                           (client/log client :info ::server-notice {:notice response})
-                           (recur command-complete data ex))
+                           (:command-complete :empty-query)
+                           (if ex
+                             (throw ex)
+                             (recur attrs data ex))
 
-                         :copy-data
-                         (recur command-complete (rf-with rf data (response :data)) ex)
+                           (:bind-complete :copy-out :copy-done :no-data)
+                           (recur attrs data ex)
 
-                         :copy-in
-                         (do
-                           (client/enqueue client {:type :copy-done})
-                           (client/flush client)
-                           (anomaly! "Not implemented: COPY ... FROM STDIN" ::anomalies/unsupported {:type type}))
+                           :parameter
+                           (let [parameter (response :parameter)]
+                             (recur attrs (rf-with rf data parameter) ex))
 
-                         (:command-complete :portal-suspended :empty-query)
-                         ;; TODO: OK?
-                         (if ex
-                           (throw ex)
-                           (recur command-complete data ex))
-
-                         (:bind-complete :copy-out :copy-done :no-data)
-                         (recur command-complete data ex)
-
-                         :parameter
-                         (let [parameter (response :parameter)]
-                           (recur command-complete (rf-with rf data parameter) ex))
-
-                         :data-row
-                         (let [tuples (response :tuple)
-                               data-row (data-row/parse attrs tuples {:query-fn query-fn :key-fn key-fn :format :bin})]
-                           (recur command-complete (rf-with rf data data-row) ex))))))))]
+                           :data-row
+                           (let [tuples (response :tuple)
+                                 data-row (data-row/parse attrs tuples {:query-fn query-fn :key-fn key-fn :format :bin})]
+                             (recur attrs (rf-with rf data data-row) ex)))))))))]
 
          (reify
            IFn
@@ -473,87 +479,13 @@
            (applyTo [_ arglist]
              (execute arglist))
 
+           PreparedStatement
+           (attributes [_] attrs)
+
            AutoCloseable
            (close [_]
-             (close-statement client stmt-name))))))))
-
-(comment
-  (def pg (connect :key-fn (fn [_ attr-name] (keyword attr-name))))
-  (.close pg)
-  (eq pg
-    ["CREATE TABLE t (id int PRIMARY KEY, a int)"]
-    ["INSERT INTO t (id, a) VALUES (1, 10)"])
-
-  (def as-by-ids (prepare pg "SELECT * FROM t WHERE id = ANY($1)  ORDER BY a ASC"))
-
-
-  (prn (= [{:id 1 :a 10}] (into [] (as-by-ids (int-array [1])))))
-
-  (eq pg
-    ["ALTER TABLE t ADD COLUMN b int"]
-    ["INSERT INTO t (id, a, b) VALUES (2, 20, 200)"])
-
-  ;; TODO: Test a statement that a) is valid after ALTER TABLE and b) is not
-
-  (prn (= [{:id 1 :a 10}] (into [] (as-by-ids (int-array [1])))))
-  ,,,)
-
-(comment
-  ;; FIXME: Maybe instead of the current approach, make statement name
-  ;; (keyword? symbol?) mandatory and force the user to use that to refer to
-  ;; the client-side prepared statement. That way maybe the user could just
-  ;; prepare all statements upon connection, then use the name to refer to
-  ;; them when calling?
-  (def db (connect :key-fn (fn [_ attr-name] (keyword attr-name))))
-  (.close db)
-
-  (prepare db "SELECT bad" [(int 25) (int 25)])
-
-  ;; Prepare a statement that accepts one int4 array (OID 1007) as a parameter
-  (def films-by-ids
-    (prepare db "SELECT * FROM film WHERE film_id = ANY($1)" {:name 'films-by-ids}))
-
-  ;; Execute the statement. Pass int-array of [3 2] as parameter.
-  ;;
-  ;; Executing the statement returns a clojure.lang.IReduceInit, which we
-  ;; reduce into a vector using `into`.
-  (into [] (execute db 'films-by-ids [(int-array [1 2 3 4 5])]))
-  (into [] (execute db 'films-by-ids [(int-array [1 2 3 4 5])]))
-  (seq (execute db 'films-by-ids [(int-array [1 2 3 4 5])]))
-
-  (sq db "BEGIN TRANSACTION")
-  (into [] (films-by-ids (int-array [1 2 3 4 5])))
-  (sq db "COMMIT")
-
-  (into []
-    #_(halt-when (fn [film] (= "G" (:rating film))))
-    (films-by-ids (int-array [4])))
-
-  (vec (films-by-ids (int-array [4])))
-  (vec (films-by-ids (int-array [5])))
-  (seq (films-by-ids (int-array [5])))
-
-  (def sum
-    (prepare db 'sum "SELECT $1 + $2 + $3 + $4 + $5 + $6 AS n" {:oids [(int 20) (int 20) (int 20) (int 20) (int 20) (int 20)]}))
-
-  (.close sum)
-
-  (into [] (execute db 'sum [1 2 3 4 5 6]))
-  (into [] (sum 1 2 3 4 5 6))
-  (into [] (sum 7 8 9 10 11 12))
-  (into [] (sum 7 8 9 10 11 12 13))
-
-  ;; Close the prepared statement.
-  ;;
-  ;; Attempting to execute the statement after closing it yields an error like
-  ;; this:
-  ;;
-  ;;     prepared statement "m_1ba1d313-4bad-4ac9-bb5e-020c679c96ad" does not exist
-  (.close film-by-ids)
-
-  (def all-films (prepare db "SELECT * FROM film"))
-  (into [] (all-films))
-  ,,,)
+             (with-lock client
+               (close-statement client stmt-name)))))))))
 
 #_{:clj-kondo/ignore [:unused-binding]}
 (defn sq
