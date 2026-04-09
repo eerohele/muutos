@@ -157,6 +157,13 @@
 
     (with-meta client (assoc session :options (select-keys options [:key-fn])))))
 
+(defn ^:private handle-error! [client ex]
+  (if (= ::error/server-error (-> ex ex-data :kind))
+    (throw ex)
+    (do
+      (AutoCloseable/.close client)
+      (anomaly! "Fatal error when reading server response; closing client to prevent protocol desynchronization" ::anomalies/fault (ex-data ex) ex))))
+
 (def ^:private unnamed-statement "")
 (def ^:private unnamed-portal "")
 
@@ -263,11 +270,7 @@
                                 (catch Throwable ex
                                   ;; If the event loop throws e.g. an OutOfMemoryError, let it crash to
                                   ;; prevent the event loop from getting out of sync.
-                                  (if (= ::error/server-error (-> ex ex-data :kind))
-                                    (throw ex)
-                                    (do
-                                      (AutoCloseable/.close client)
-                                      (anomaly! "Fatal error when reading server response; closing client to prevent protocol desynchronization" ::anomalies/fault (ex-data ex) ex)))))]
+                                  (handle-error! client ex)))]
                     (recur (inc i) (conj! data datum)))))]
           ;; If everything went well, we'll receive :ready-for-query only after
           ;; reading until :command-complete for every input query.
@@ -364,11 +367,7 @@
          (catch Throwable ex
            ;; If the event loop throws e.g. an OutOfMemoryError, let it crash to
            ;; prevent the event loop from getting out of sync.
-           (if (= ::error/server-error (-> ex ex-data :kind))
-             (throw ex)
-             (do
-               (AutoCloseable/.close client)
-               (anomaly! "Fatal error when reading server response; closing client to prevent protocol desynchronization" ::anomalies/fault (ex-data ex) ex)))))))))
+           (handle-error! client ex)))))))
 
 (comment
   (def pg (connect))
