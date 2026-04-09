@@ -45,7 +45,7 @@
 (defmacro same? [a b]
   `(zero? (.compareTo ~a ~b)))
 
-(defn connect-test [& {:as opts}]
+(defn connect-test ^AutoCloseable [& {:as opts}]
   (connect (merge {:database "test" :host (host @server) :port (port @server)} opts)))
 
 (deftest ^:integration read-error
