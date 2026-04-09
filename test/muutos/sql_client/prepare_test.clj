@@ -35,7 +35,11 @@
 (defn ^:private key-fn [_ attr-name] (keyword attr-name))
 
 (defn $ ^AutoCloseable [& {:as opts}]
-  (connect (merge {:database "test" :key-fn key-fn :host (host @server) :port (port @server)} opts)))
+  (connect
+    (merge {:database "test"
+            :key-fn key-fn
+            :host (host @server)
+            :port (port @server)} opts)))
 
 (deftest infer
   (with-open [pg ($)
@@ -209,7 +213,7 @@
         ["CREATE TABLE t (id int PRIMARY KEY, a int)"]
         ["INSERT INTO t (id, a) VALUES (1, 10)"])
 
-      (with-open [as-by-ids (sql/prepare pg "SELECT * FROM t WHERE id = ANY($1)  ORDER BY a ASC")]
+      (with-open [as-by-ids (sql/prepare pg "SELECT * FROM t WHERE id = ANY($1) ORDER BY a ASC")]
         (is (= [{:id 1 :a 10}] (into [] (as-by-ids (int-array [1])))))
 
         (eq pg

@@ -298,9 +298,8 @@
     acc
     (rf acc x)))
 
-(defn ^:private -reduce [client row-description rf init]
-  (let [{:keys [key-fn]} (client/options client)
-        attrs (row-description :attrs)]
+(defn ^:private -reduce [client attrs rf init]
+  (let [{:keys [key-fn]} (client/options client)]
     (loop [command-complete {}
            data init
            ex nil]
@@ -329,6 +328,7 @@
             (anomaly! "Not implemented: COPY ... FROM STDIN" ::anomalies/unsupported {:type type}))
 
           (:command-complete :portal-suspended :empty-query)
+          ;; TODO: OK?
           (if ex
             (throw ex)
             (recur command-complete data ex))
@@ -367,36 +367,7 @@
         :close-complete
         (recur ex)))))
 
-(declare prepare)
-
-;; TODO: Accept parameters as varags? Perf implications, though. Also, no options.
-;; FIXME: params are a mess
-(defn ^:private execute
-  [client q stmt-name row-description & parameters]
-  (let [stmt-name (name stmt-name)
-        parameters (mapv bin/encode parameters)]
-    (client/enqueue client {:type :bind :statement stmt-name :portal unnamed-portal :parameters parameters})
-    (client/enqueue client {:type :execute :portal unnamed-portal :max-rows 0})
-    (client/enqueue client {:type :sync})
-    (client/flush client))
-
-  (reify
-    ;; FIXME: Seqable
-    IReduceInit
-    (reduce [_ rf init]
-      (try
-        (-reduce client row-description rf init)
-        (catch Throwable ex
-          (prn ex)
-          ;; cached plan has changed; re-prepare
-          (if (= "0A000" (-> ex ex-data :error-code))
-            (do
-              (close-stmt client stmt-name)
-              ;; FIXME oids?
-              (prepare client q {:name stmt-name})
-              (-reduce client row-description rf init))
-            (throw ex)))))))
-
+;; FIXME: Make sure prepare (when using IFn) is compatible with transactions!
 (defn prepare
   (^AutoCloseable [client q]
    (prepare client q {}))
@@ -408,41 +379,114 @@
        (client/enqueue client {:type :sync})
        (client/flush client)
 
-       (let [row-description (loop [data []
-                                    row-description {}
-                                    ex nil]
-                               (let [{:keys [type] :as response} (client/recv client)]
-                                 (case type
-                                   :ready-for-query
-                                   (if ex
-                                     (handle-error! client ex)
-                                     row-description)
+       (let [attrs (loop [data []
+                          attrs {}
+                          ex nil]
+                     (let [{:keys [type] :as response} (client/recv client)]
+                       (case type
+                         :ready-for-query
+                         (if ex
+                           (handle-error! client ex)
+                           attrs)
 
-                                   :row-description
-                                   (recur data response ex)
+                         :row-description
+                         (recur data (response :attrs) ex)
 
-                                   (:parameter-description :no-data :parse-complete)
-                                   (recur data row-description ex)
+                         (:parameter-description :no-data :parse-complete)
+                         (recur data attrs ex)
 
-                                   :error
-                                   (recur data row-description (response :ex)))))]
+                         :error
+                         (recur data attrs (response :ex)))))]
 
-         (reify
-           IFn
-           (invoke [_] (execute client q stmt-name row-description))
-           (invoke [_ a1] (execute client q stmt-name row-description a1))
-           (invoke [_ a1 a2] (execute client q stmt-name row-description a1 a2))
-           (invoke [_ a1 a2 a3] (execute client q stmt-name row-description a1 a2 a3))
-           (invoke [_ a1 a2 a3 a4] (execute client q stmt-name row-description a1 a2 a3 a4))
-           (invoke [_ a1 a2 a3 a4 a5] (execute client q stmt-name row-description a1 a2 a3 a4 a5))
-           (invoke [_ a1 a2 a3 a4 a5 a6] (execute client q stmt-name row-description a1 a2 a3 a4 a5 a6))
-           (invoke [_ a1 a2 a3 a4 a5 a6 a7] (execute client q stmt-name row-description a1 a2 a3 a4 a5 a6 a7))
-           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8] (execute client q stmt-name row-description a1 a2 a3 a4 a5 a6 a7 a8))
-           ;; TODO: Support any number of arguments (now only 0-8).
+         (letfn [(execute [parameters]
+                   (let [parameters (mapv bin/encode parameters)]
+                     (client/enqueue client {:type :bind :statement stmt-name :portal unnamed-portal :parameters parameters})
+                     (client/enqueue client {:type :execute :portal unnamed-portal :max-rows 0})
+                     (client/enqueue client {:type :sync})
+                     (client/flush client)
 
-           AutoCloseable
-           (close [_]
-             (close-stmt client stmt-name))))))))
+                     (reify
+                       ;; FIXME: Add Seqable
+                       IReduceInit
+                       (reduce [_ rf init]
+                         ;; FIXME: If PostgreSQL returns error "0A000" (cached plan has
+                         ;; changed), re-prepare same statement and retry.
+                         (-reduce client attrs rf init)))))]
+
+           (reify
+             IFn
+             (invoke [_]
+               (execute []))
+             (invoke [_ a1]
+               (execute [a1]))
+             (invoke [_ a1 a2]
+               (execute [a1 a2]))
+             (invoke [_ a1 a2 a3]
+               (execute [a1 a2 a3]))
+             (invoke [_ a1 a2 a3 a4]
+               (execute [a1 a2 a3 a4]))
+             (invoke [_ a1 a2 a3 a4 a5]
+               (execute [a1 a2 a3 a4 a5]))
+             (invoke [_ a1 a2 a3 a4 a5 a6]
+               (execute [a1 a2 a3 a4 a5 a6]))
+             (invoke [_ a1 a2 a3 a4 a5 a6 a7]
+               (execute [a1 a2 a3 a4 a5 a6 a7]))
+             (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8]
+               (execute [a1 a2 a3 a4 a5 a6 a7 a8]))
+             (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9]
+               (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9]))
+             (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10]
+               (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10]))
+             (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11]
+               (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11]))
+             (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12]
+               (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12]))
+             (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13]
+               (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13]))
+             (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14]
+               (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14]))
+             (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15]
+               (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15]))
+             (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16]
+               (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16]))
+             (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17]
+               (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17]))
+             (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18]
+               (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18]))
+             (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18 a19]
+               (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18 a19]))
+             (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18 a19 a20]
+               (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18 a19 a20]))
+             ;; FIXME: Is this correct?
+             (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18 a19 a20 args]
+               (execute (into [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18 a19 a20] args)))
+
+             (applyTo [_ arglist] (execute arglist))
+
+             AutoCloseable
+             (close [_]
+               (close-stmt client stmt-name)))))))))
+
+(comment
+  (def pg (connect :key-fn (fn [_ attr-name] (keyword attr-name))))
+  (.close pg)
+  (eq pg
+    ["CREATE TABLE t (id int PRIMARY KEY, a int)"]
+    ["INSERT INTO t (id, a) VALUES (1, 10)"])
+
+  (def as-by-ids (prepare pg "SELECT * FROM t WHERE id = ANY($1)  ORDER BY a ASC"))
+
+
+  (prn (= [{:id 1 :a 10}] (into [] (as-by-ids (int-array [1])))))
+
+  (eq pg
+    ["ALTER TABLE t ADD COLUMN b int"]
+    ["INSERT INTO t (id, a, b) VALUES (2, 20, 200)"])
+
+  ;; TODO: Test a statement that a) is valid after ALTER TABLE and b) is not
+
+  (prn (= [{:id 1 :a 10}] (into [] (as-by-ids (int-array [1])))))
+  ,,,)
 
 (comment
   ;; FIXME: Maybe instead of the current approach, make statement name
