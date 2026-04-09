@@ -329,15 +329,12 @@
             (client/flush client)
             (anomaly! "Not implemented: COPY ... FROM STDIN" ::anomalies/unsupported {:type type}))
 
-          :copy-both
-          (rf-with rf data (dissoc response :type))
-
           (:command-complete :portal-suspended :empty-query)
           (if ex
             (throw ex)
             (recur command-complete row-description data ex))
 
-          (:bind-complete :close-complete :parameter-description :copy-out :copy-done :no-data)
+          (:bind-complete :parameter-description :copy-out :copy-done :no-data)
           (recur command-complete row-description data ex)
 
           :parameter

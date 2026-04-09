@@ -159,3 +159,14 @@
               set-time-zone (sql/prepare pg "SET TIME ZONE 'Europe/Helsinki'")]
     (is (= [["TimeZone" "Europe/Helsinki"]] (into [] (set-time-zone))))
     (is (= [{:n 1}] (eq pg ["SELECT 1 AS n"])))))
+
+(deftest copy-data
+  (with-open [pg ($)
+              copy-data (sql/prepare pg "COPY (SELECT 1) TO STDOUT")]
+    (is (= ["1\n"] (into [] (copy-data))))
+    (is (= [{:n 1}] (eq pg ["SELECT 1 AS n"])))))
+
+(deftest no-data
+  (with-open [pg ($)
+              no-data (sql/prepare pg "SELECT FROM pg_type WHERE FALSE")]
+    (is (= [] (into [] (no-data))))))
