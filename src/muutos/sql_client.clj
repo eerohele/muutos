@@ -345,9 +345,34 @@
                 data-row (data-row/parse attrs tuples {:query-fn (fn [qvec] (eq (client/aux client) qvec)) :key-fn key-fn :format :bin})]
             (recur command-complete (rf-with rf data data-row) ex)))))))
 
+(defn ^:private close-stmt [client stmt-name]
+  (client/enqueue client {:type :close :target :statement :name stmt-name})
+  (client/enqueue client {:type :sync})
+  (client/flush client)
+
+  (loop [ex nil]
+    (let [{:keys [type] :as response} (client/recv client)]
+      (case type
+        :ready-for-query
+        (when ex (throw ex))
+
+        :error
+        (recur (:ex response))
+
+        ;; Might get one of these when closing the statement before
+        ;; executing it.
+        (:command-complete :parameter-description :row-description :bind-complete :data-row)
+        (recur ex)
+
+        :close-complete
+        (recur ex)))))
+
+(declare prepare)
+
 ;; TODO: Accept parameters as varags? Perf implications, though. Also, no options.
+;; FIXME: params are a mess
 (defn ^:private execute
-  [client stmt-name row-description & parameters]
+  [client q stmt-name row-description & parameters]
   (let [stmt-name (name stmt-name)
         parameters (mapv bin/encode parameters)]
     (client/enqueue client {:type :bind :statement stmt-name :portal unnamed-portal :parameters parameters})
@@ -359,9 +384,18 @@
     ;; FIXME: Seqable
     IReduceInit
     (reduce [_ rf init]
-      ;; FIXME: If cached plan changes, i.e. (= "0A000" (-> ex ex-data :error-
-      ;; code)), re-prepare, then try again.
-      (-reduce client row-description rf init))))
+      (try
+        (-reduce client row-description rf init)
+        (catch Throwable ex
+          (prn ex)
+          ;; cached plan has changed; re-prepare
+          (if (= "0A000" (-> ex ex-data :error-code))
+            (do
+              (close-stmt client stmt-name)
+              ;; FIXME oids?
+              (prepare client q {:name stmt-name})
+              (-reduce client row-description rf init))
+            (throw ex)))))))
 
 (defn prepare
   (^AutoCloseable [client q]
@@ -384,13 +418,10 @@
                                      (handle-error! client ex)
                                      row-description)
 
-                                   :parameter-description
-                                   (recur data row-description ex)
-
                                    :row-description
                                    (recur data response ex)
 
-                                   :parse-complete
+                                   (:parameter-description :no-data :parse-complete)
                                    (recur data row-description ex)
 
                                    :error
@@ -398,39 +429,20 @@
 
          (reify
            IFn
-           (invoke [_] (execute client stmt-name row-description))
-           (invoke [_ a1] (execute client stmt-name row-description a1))
-           (invoke [_ a1 a2] (execute client stmt-name row-description a1 a2))
-           (invoke [_ a1 a2 a3] (execute client stmt-name row-description a1 a2 a3))
-           (invoke [_ a1 a2 a3 a4] (execute client stmt-name row-description a1 a2 a3 a4))
-           (invoke [_ a1 a2 a3 a4 a5] (execute client stmt-name row-description a1 a2 a3 a4 a5))
-           (invoke [_ a1 a2 a3 a4 a5 a6] (execute client stmt-name row-description a1 a2 a3 a4 a5 a6))
-           (invoke [_ a1 a2 a3 a4 a5 a6 a7] (execute client stmt-name row-description a1 a2 a3 a4 a5 a6 a7))
-           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8] (execute client stmt-name row-description a1 a2 a3 a4 a5 a6 a7 a8))
+           (invoke [_] (execute client q stmt-name row-description))
+           (invoke [_ a1] (execute client q stmt-name row-description a1))
+           (invoke [_ a1 a2] (execute client q stmt-name row-description a1 a2))
+           (invoke [_ a1 a2 a3] (execute client q stmt-name row-description a1 a2 a3))
+           (invoke [_ a1 a2 a3 a4] (execute client q stmt-name row-description a1 a2 a3 a4))
+           (invoke [_ a1 a2 a3 a4 a5] (execute client q stmt-name row-description a1 a2 a3 a4 a5))
+           (invoke [_ a1 a2 a3 a4 a5 a6] (execute client q stmt-name row-description a1 a2 a3 a4 a5 a6))
+           (invoke [_ a1 a2 a3 a4 a5 a6 a7] (execute client q stmt-name row-description a1 a2 a3 a4 a5 a6 a7))
+           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8] (execute client q stmt-name row-description a1 a2 a3 a4 a5 a6 a7 a8))
            ;; TODO: Support any number of arguments (now only 0-8).
 
            AutoCloseable
            (close [_]
-             (client/enqueue client {:type :close :target :statement :name stmt-name})
-             (client/enqueue client {:type :sync})
-             (client/flush client)
-
-             (loop [ex nil]
-               (let [{:keys [type] :as response} (client/recv client)]
-                 (case type
-                   :ready-for-query
-                   (when ex (throw ex))
-
-                   :error
-                   (recur (:ex response))
-
-                   ;; Might get one of these when closing the statement before
-                   ;; executing it.
-                   (:command-complete :parameter-description :row-description :bind-complete :data-row)
-                   (recur ex)
-
-                   :close-complete
-                   (recur ex)))))))))))
+             (close-stmt client stmt-name))))))))
 
 (comment
   ;; FIXME: Maybe instead of the current approach, make statement name

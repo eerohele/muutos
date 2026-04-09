@@ -190,6 +190,18 @@
               no-data (sql/prepare pg "SELECT FROM pg_type WHERE FALSE")]
     (is (= [] (into [] (no-data))))))
 
+(deftest table
+  (with-open [pg ($)]
+    (eq pg
+      ["CREATE TABLE t (id int PRIMARY KEY, a int)"]
+      ["INSERT INTO t (id, a) VALUES (1, 10), (2, 20), (3, 30)"])
+
+    (with-open [as-by-ids (sql/prepare pg "SELECT * FROM t WHERE id = ANY($1) ORDER BY a ASC")]
+      (is (= [{:id 1 :a 10}
+              {:id 2 :a 20}
+              {:id 3 :a 30}]
+            (into [] (as-by-ids (int-array [1 2 3]))))))))
+
 ;; TODO
 #_(deftest alter-table
     (with-open [pg ($)]
@@ -197,11 +209,13 @@
         ["CREATE TABLE t (id int PRIMARY KEY, a int)"]
         ["INSERT INTO t (id, a) VALUES (1, 10)"])
 
-      (with-open [a-by-id (sql/prepare pg "SELECT * FROM t WHERE id = ANY($1)")]
-        (is (= [{:id 1 :a 10}] (into [] (a-by-id (int-array [1])))))
+      (with-open [as-by-ids (sql/prepare pg "SELECT * FROM t WHERE id = ANY($1)  ORDER BY a ASC")]
+        (is (= [{:id 1 :a 10}] (into [] (as-by-ids (int-array [1])))))
 
         (eq pg
           ["ALTER TABLE t ADD COLUMN b int"]
           ["INSERT INTO t (id, a, b) VALUES (2, 20, 200)"])
 
-        (is (= [{:id 1 :a 10}] (into [] (a-by-id (int-array [1]))))))))
+        ;; TODO: Test a statement that a) is valid after ALTER TABLE and b) is not
+
+        (is (= [{:id 1 :a 10}] (into [] (as-by-ids (int-array [1]))))))))
