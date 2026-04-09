@@ -333,100 +333,116 @@
 
              execute
              (fn [parameters]
-               (reify
-                 ;; FIXME: Add Seqable
-                 IReduceInit
-                 (reduce [_ rf init]
-                   (client/enqueue client {:type :bind :statement stmt-name :portal unnamed-portal :parameters parameters})
-                   (client/enqueue client {:type :execute :portal unnamed-portal :max-rows 0})
-                   (client/enqueue client {:type :sync})
-                   (client/flush client)
+               (let [encoded-parameters (mapv bin/encode parameters)]
+                 (reify
+                   ;; FIXME: Add Seqable
+                   IReduceInit
+                   (reduce [_ rf init]
+                     (client/enqueue client {:type :bind :statement stmt-name :portal unnamed-portal :parameters encoded-parameters})
+                     (client/enqueue client {:type :execute :portal unnamed-portal :max-rows 0})
+                     (client/enqueue client {:type :sync})
+                     (client/flush client)
 
-                   ;; FIXME: If PostgreSQL returns error "0A000" (cached plan has
-                   ;; changed), re-prepare same statement and retry.
-                   (loop [command-complete {}
-                          data init
-                          ex nil]
-                     (let [{:keys [type] :as response} (client/recv client)]
-                       (case type
-                         :ready-for-query
-                         (cond
-                           (= "0A000" (-> ex ex-data :error-code))
-                           (do #_TODO)
+                     ;; FIXME: If PostgreSQL returns error "0A000" (cached plan has
+                     ;; changed), re-prepare same statement and retry.
+                     (loop [command-complete {}
+                            data init
+                            ex nil]
+                       (let [{:keys [type] :as response} (client/recv client)]
+                         (case type
+                           :ready-for-query
+                           (cond
+                             (= "0A000" (-> ex ex-data :error-code))
+                             (do #_TODO)
 
-                           ex (throw ex)
-                           :else (unreduced data))
+                             ex (throw ex)
+                             :else (unreduced data))
 
-                         :error
-                         (recur command-complete data (:ex response))
+                           :error
+                           (recur command-complete data (:ex response))
 
-                         :notice
-                         (do
-                           (client/log client :info ::server-notice {:notice response})
-                           (recur command-complete data ex))
+                           :notice
+                           (do
+                             (client/log client :info ::server-notice {:notice response})
+                             (recur command-complete data ex))
 
-                         :copy-data
-                         (recur command-complete (rf-with rf data (response :data)) ex)
+                           :copy-data
+                           (recur command-complete (rf-with rf data (response :data)) ex)
 
-                         :copy-in
-                         (do
-                           (client/enqueue client {:type :copy-done})
-                           (client/flush client)
-                           (anomaly! "Not implemented: COPY ... FROM STDIN" ::anomalies/unsupported {:type type}))
+                           :copy-in
+                           (do
+                             (client/enqueue client {:type :copy-done})
+                             (client/flush client)
+                             (anomaly! "Not implemented: COPY ... FROM STDIN" ::anomalies/unsupported {:type type}))
 
-                         (:command-complete :portal-suspended :empty-query)
-                         ;; TODO: OK?
-                         (if ex
-                           (throw ex)
-                           (recur command-complete data ex))
+                           (:command-complete :portal-suspended :empty-query)
+                           ;; TODO: OK?
+                           (if ex
+                             (throw ex)
+                             (recur command-complete data ex))
 
-                         (:bind-complete :copy-out :copy-done :no-data)
-                         (recur command-complete data ex)
+                           (:bind-complete :copy-out :copy-done :no-data)
+                           (recur command-complete data ex)
 
-                         :parameter
-                         (let [parameter (response :parameter)]
-                           (recur command-complete (rf-with rf data parameter) ex))
+                           :parameter
+                           (let [parameter (response :parameter)]
+                             (recur command-complete (rf-with rf data parameter) ex))
 
-                         :data-row
-                         (let [tuples (response :tuple)
-                               data-row (data-row/parse attrs tuples {:query-fn query-fn :key-fn key-fn :format :bin})]
-                           (recur command-complete (rf-with rf data data-row) ex))))))))
-
-             ε (fn [arg] (bin/encode arg))]
+                           :data-row
+                           (let [tuples (response :tuple)
+                                 data-row (data-row/parse attrs tuples {:query-fn query-fn :key-fn key-fn :format :bin})]
+                             (recur command-complete (rf-with rf data data-row) ex)))))))))]
 
          (reify
            IFn
-           (invoke [_] (execute []))
-           (invoke [_ a1] (execute [(ε a1)]))
-           (invoke [_ a1 a2] (execute [(ε a1) (ε a2)]))
-           (invoke [_ a1 a2 a3] (execute [(ε a1) (ε a2) (ε a3)]))
-           (invoke [_ a1 a2 a3 a4] (execute [(ε a1) (ε a2) (ε a3) (ε a4)]))
-           (invoke [_ a1 a2 a3 a4 a5] (execute [(ε a1) (ε a2) (ε a3) (ε a4) (ε a5)]))
-           (invoke [_ a1 a2 a3 a4 a5 a6] (execute [(ε a1) (ε a2) (ε a3) (ε a4) (ε a5) (ε a6)]))
-           (invoke [_ a1 a2 a3 a4 a5 a6 a7] (execute [(ε a1) (ε a2) (ε a3) (ε a4) (ε a5) (ε a6) (ε a7)]))
-           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8] (execute [(ε a1) (ε a2) (ε a3) (ε a4) (ε a5) (ε a6) (ε a7) (ε a8)]))
-           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9] (execute [(ε a1) (ε a2) (ε a3) (ε a4) (ε a5) (ε a6) (ε a7) (ε a8) (ε a9)]))
-           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10] (execute [(ε a1) (ε a2) (ε a3) (ε a4) (ε a5) (ε a6) (ε a7) (ε a8) (ε a9) (ε a10)]))
-           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11] (execute [(ε a1) (ε a2) (ε a3) (ε a4) (ε a5) (ε a6) (ε a7) (ε a8) (ε a9) (ε a10) (ε a11)]))
-           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12] (execute [(ε a1) (ε a2) (ε a3) (ε a4) (ε a5) (ε a6) (ε a7) (ε a8) (ε a9) (ε a10) (ε a11) (ε a12)]))
-           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13] (execute [(ε a1) (ε a2) (ε a3) (ε a4) (ε a5) (ε a6) (ε a7) (ε a8) (ε a9) (ε a10) (ε a11) (ε a12) (ε a13)]))
-           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14] (execute [(ε a1) (ε a2) (ε a3) (ε a4) (ε a5) (ε a6) (ε a7) (ε a8) (ε a9) (ε a10) (ε a11) (ε a12) (ε a13) (ε a14)]))
-           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15] (execute [(ε a1) (ε a2) (ε a3) (ε a4) (ε a5) (ε a6) (ε a7) (ε a8) (ε a9) (ε a10) (ε a11) (ε a12) (ε a13) (ε a14) (ε a15)]))
-           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16] (execute [(ε a1) (ε a2) (ε a3) (ε a4) (ε a5) (ε a6) (ε a7) (ε a8) (ε a9) (ε a10) (ε a11) (ε a12) (ε a13) (ε a14) (ε a15) (ε a16)]))
-           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17] (execute [(ε a1) (ε a2) (ε a3) (ε a4) (ε a5) (ε a6) (ε a7) (ε a8) (ε a9) (ε a10) (ε a11) (ε a12) (ε a13) (ε a14) (ε a15) (ε a16) (ε a17)]))
-           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18] (execute [(ε a1) (ε a2) (ε a3) (ε a4) (ε a5) (ε a6) (ε a7) (ε a8) (ε a9) (ε a10) (ε a11) (ε a12) (ε a13) (ε a14) (ε a15) (ε a16) (ε a17) (ε a18)]))
-           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18 a19] (execute [(ε a1) (ε a2) (ε a3) (ε a4) (ε a5) (ε a6) (ε a7) (ε a8) (ε a9) (ε a10) (ε a11) (ε a12) (ε a13) (ε a14) (ε a15) (ε a16) (ε a17) (ε a18) (ε a19)]))
-           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18 a19 a20] (execute [(ε a1) (ε a2) (ε a3) (ε a4) (ε a5) (ε a6) (ε a7) (ε a8) (ε a9) (ε a10) (ε a11) (ε a12) (ε a13) (ε a14) (ε a15) (ε a16) (ε a17) (ε a18) (ε a19) (ε a20)]))
-
+           (invoke [_]
+             (execute []))
+           (invoke [_ a1]
+             (execute [a1]))
+           (invoke [_ a1 a2]
+             (execute [a1 a2]))
+           (invoke [_ a1 a2 a3]
+             (execute [a1 a2 a3]))
+           (invoke [_ a1 a2 a3 a4]
+             (execute [a1 a2 a3 a4]))
+           (invoke [_ a1 a2 a3 a4 a5]
+             (execute [a1 a2 a3 a4 a5]))
+           (invoke [_ a1 a2 a3 a4 a5 a6]
+             (execute [a1 a2 a3 a4 a5 a6]))
+           (invoke [_ a1 a2 a3 a4 a5 a6 a7]
+             (execute [a1 a2 a3 a4 a5 a6 a7]))
+           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8]
+             (execute [a1 a2 a3 a4 a5 a6 a7 a8]))
+           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9]
+             (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9]))
+           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10]
+             (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10]))
+           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11]
+             (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11]))
+           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12]
+             (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12]))
+           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13]
+             (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13]))
+           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14]
+             (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14]))
+           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15]
+             (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15]))
+           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16]
+             (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16]))
+           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17]
+             (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17]))
+           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18]
+             (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18]))
+           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18 a19]
+             (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18 a19]))
+           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18 a19 a20]
+             (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18 a19 a20]))
            ;; FIXME: Is this correct?
            (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18 a19 a20 args]
-             (execute
-               (into [(ε a1) (ε a2) (ε a3) (ε a4) (ε a5) (ε a6) (ε a7) (ε a8) (ε a9) (ε a10) (ε a11) (ε a12) (ε a13) (ε a14) (ε a15) (ε a16) (ε a17) (ε a18) (ε a19) (ε a20)]
-                 (map ε)
-                 args)))
+             (execute (into [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18 a19 a20] args)))
 
            (applyTo [_ arglist]
-             (execute (mapv ε arglist)))
+             (execute arglist))
 
            AutoCloseable
            (close [_]
