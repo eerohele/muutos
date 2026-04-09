@@ -2,6 +2,7 @@
   (:require [clojure.string :as string]
             [cognitect.anomalies :as-alias anomalies]
             [muutos.codec.bin :refer [decode-cstring]]
+            [muutos.error :as-alias error]
             [muutos.impl.anomaly :refer [anomaly!]]
             [muutos.impl.bb :as bb :refer [int8 int16 int32 int64]]
             [muutos.impl.error-code :as error-code]
@@ -471,7 +472,7 @@
   [^ByteBuffer bb]
   (let [{:keys [message] :as data} (decode-error-notice-message-fields bb)]
     {:type :error
-     :ex (ex-info message (-> data (assoc :kind :muutos.error/server-error) (dissoc :message)))}))
+     :ex (ex-info message (-> data (assoc :kind ::error/server-error) (dissoc :message)))}))
 
 (defn decode-notice-response
   [^ByteBuffer bb]
