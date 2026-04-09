@@ -298,11 +298,10 @@
     acc
     (rf acc x)))
 
-(defn ^:private -reduce [client rf init]
-  ;; FIXME: Most of this implementation is shared with eq. Consolidate?
-  (let [{:keys [key-fn]} (client/options client)]
+(defn ^:private -reduce [client row-description rf init]
+  (let [{:keys [key-fn]} (client/options client)
+        attrs (row-description :attrs)]
     (loop [command-complete {}
-           row-description {}
            data init
            ex nil]
       (let [{:keys [type] :as response} (client/recv client)]
@@ -313,15 +312,15 @@
             (unreduced data))
 
           :error
-          (recur command-complete row-description data (:ex response))
+          (recur command-complete data (:ex response))
 
           :notice
           (do
             (client/log client :info ::server-notice {:notice response})
-            (recur command-complete row-description data ex))
+            (recur command-complete data ex))
 
           :copy-data
-          (recur command-complete row-description (rf-with rf data (response :data)) ex)
+          (recur command-complete (rf-with rf data (response :data)) ex)
 
           :copy-in
           (do
@@ -332,30 +331,25 @@
           (:command-complete :portal-suspended :empty-query)
           (if ex
             (throw ex)
-            (recur command-complete row-description data ex))
+            (recur command-complete data ex))
 
-          (:bind-complete :parameter-description :copy-out :copy-done :no-data)
-          (recur command-complete row-description data ex)
+          (:bind-complete :copy-out :copy-done :no-data)
+          (recur command-complete data ex)
 
           :parameter
           (let [parameter (response :parameter)]
-            (recur command-complete row-description (rf-with rf data parameter) ex))
-
-          :row-description
-          (recur command-complete response data ex)
+            (recur command-complete (rf-with rf data parameter) ex))
 
           :data-row
-          (let [attrs (row-description :attrs)
-                tuples (response :tuple)
+          (let [tuples (response :tuple)
                 data-row (data-row/parse attrs tuples {:query-fn (fn [qvec] (eq (client/aux client) qvec)) :key-fn key-fn :format :bin})]
-            (recur command-complete row-description (rf-with rf data data-row) ex)))))))
+            (recur command-complete (rf-with rf data data-row) ex)))))))
 
 ;; TODO: Accept parameters as varags? Perf implications, though. Also, no options.
 (defn execute
-  [client stmt-name & parameters]
+  [client stmt-name row-description & parameters]
   (let [stmt-name (name stmt-name)
         parameters (mapv bin/encode parameters)]
-    (client/enqueue client {:type :describe :target :statement :name stmt-name})
     (client/enqueue client {:type :bind :statement stmt-name :portal unnamed-portal :parameters parameters})
     (client/enqueue client {:type :execute :portal unnamed-portal :max-rows 0})
     (client/enqueue client {:type :sync})
@@ -365,7 +359,9 @@
     ;; FIXME: Seqable
     IReduceInit
     (reduce [_ rf init]
-      (-reduce client rf init))))
+      ;; FIXME: If cached plan changes, i.e. (= "0A000" (-> ex ex-data :error-
+      ;; code)), re-prepare, then try again.
+      (-reduce client row-description rf init))))
 
 (defn prepare
   (^AutoCloseable [client q]
@@ -374,60 +370,67 @@
    (let [stmt-name (or (some-> name core/name) (str "ms_" (random-uuid)))]
      (with-lock client
        (client/enqueue client {:type :parse :statement stmt-name :query q :oids oids})
-       ;; FIXME: :describe here instead of in :execute?
+       (client/enqueue client {:type :describe :target :statement :name stmt-name})
        (client/enqueue client {:type :sync})
        (client/flush client)
 
-       (loop [data []
-              ex nil]
-         (let [{:keys [type] :as response} (client/recv client)]
-           (case type
-             :ready-for-query
-             (if ex
-               (handle-error! client ex)
-               data)
+       (let [row-description (loop [data []
+                                    row-description {}
+                                    ex nil]
+                               (let [{:keys [type] :as response} (client/recv client)]
+                                 (case type
+                                   :ready-for-query
+                                   (if ex
+                                     (handle-error! client ex)
+                                     row-description)
 
-             :parse-complete
-             (recur data ex)
+                                   :parameter-description
+                                   (recur data row-description ex)
 
-             :error
-             (recur nil (response :ex))))))
+                                   :row-description
+                                   (recur data response ex)
 
-     (reify
-       IFn
-       (invoke [_] (execute client stmt-name))
-       (invoke [_ a1] (execute client stmt-name a1))
-       (invoke [_ a1 a2] (execute client stmt-name a1 a2))
-       (invoke [_ a1 a2 a3] (execute client stmt-name a1 a2 a3))
-       (invoke [_ a1 a2 a3 a4] (execute client stmt-name a1 a2 a3 a4))
-       (invoke [_ a1 a2 a3 a4 a5] (execute client stmt-name a1 a2 a3 a4 a5))
-       (invoke [_ a1 a2 a3 a4 a5 a6] (execute client stmt-name a1 a2 a3 a4 a5 a6))
-       (invoke [_ a1 a2 a3 a4 a5 a6 a7] (execute client stmt-name a1 a2 a3 a4 a5 a6 a7))
-       (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8] (execute client stmt-name a1 a2 a3 a4 a5 a6 a7 a8))
-       ;; TODO: Support any number of arguments (now only 0-8).
+                                   :parse-complete
+                                   (recur data row-description ex)
 
-       AutoCloseable
-       (close [_]
-         (client/enqueue client {:type :close :target :statement :name stmt-name})
-         (client/enqueue client {:type :sync})
-         (client/flush client)
+                                   :error
+                                   (recur data row-description (response :ex)))))]
 
-         (loop [ex nil]
-           (let [{:keys [type] :as response} (client/recv client)]
-             (case type
-               :ready-for-query
-               (when ex (throw ex))
+         (reify
+           IFn
+           (invoke [_] (execute client stmt-name row-description))
+           (invoke [_ a1] (execute client stmt-name row-description a1))
+           (invoke [_ a1 a2] (execute client stmt-name row-description a1 a2))
+           (invoke [_ a1 a2 a3] (execute client stmt-name row-description a1 a2 a3))
+           (invoke [_ a1 a2 a3 a4] (execute client stmt-name row-description a1 a2 a3 a4))
+           (invoke [_ a1 a2 a3 a4 a5] (execute client stmt-name row-description a1 a2 a3 a4 a5))
+           (invoke [_ a1 a2 a3 a4 a5 a6] (execute client stmt-name row-description a1 a2 a3 a4 a5 a6))
+           (invoke [_ a1 a2 a3 a4 a5 a6 a7] (execute client stmt-name row-description a1 a2 a3 a4 a5 a6 a7))
+           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8] (execute client stmt-name row-description a1 a2 a3 a4 a5 a6 a7 a8))
+           ;; TODO: Support any number of arguments (now only 0-8).
 
-               :error
-               (recur (:ex response))
+           AutoCloseable
+           (close [_]
+             (client/enqueue client {:type :close :target :statement :name stmt-name})
+             (client/enqueue client {:type :sync})
+             (client/flush client)
 
-               ;; Might get one of these when closing the statement before
-               ;; executing it.
-               (:command-complete :parameter-description :row-description :bind-complete :data-row)
-               (recur ex)
+             (loop [ex nil]
+               (let [{:keys [type] :as response} (client/recv client)]
+                 (case type
+                   :ready-for-query
+                   (when ex (throw ex))
 
-               :close-complete
-               (recur ex)))))))))
+                   :error
+                   (recur (:ex response))
+
+                   ;; Might get one of these when closing the statement before
+                   ;; executing it.
+                   (:command-complete :parameter-description :row-description :bind-complete :data-row)
+                   (recur ex)
+
+                   :close-complete
+                   (recur ex)))))))))))
 
 (comment
   ;; FIXME: Maybe instead of the current approach, make statement name
