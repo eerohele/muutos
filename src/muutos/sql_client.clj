@@ -298,6 +298,35 @@
        acc#
        (~rf acc# ~x))))
 
+(defn ^:private close-statement [client stmt-name]
+  (client/enqueue client {:type :close :target :statement :name stmt-name})
+  (client/enqueue client {:type :sync})
+  (client/flush client)
+
+  (loop [ex nil]
+    (let [{:keys [type] :as response} (client/recv client)]
+      (case type
+        :ready-for-query
+        (when ex (throw ex))
+
+        :error
+        (recur (:ex response))
+
+        ;; Might get one of these when closing the statement before
+        ;; executing it.
+        (:command-complete :parameter-description :row-description :bind-complete :data-row)
+        (recur ex)
+
+        :close-complete
+        (recur ex)))))
+
+(defn ^:private execute [client stmt-name parameters]
+  (let [encoded-parameters (mapv bin/encode parameters)]
+    (client/enqueue client {:type :bind :statement stmt-name :portal unnamed-portal :parameters encoded-parameters})
+    (client/enqueue client {:type :execute :portal unnamed-portal :max-rows 0})
+    (client/enqueue client {:type :sync})
+    (client/flush client)))
+
 ;; FIXME: Make sure prepare (when using IFn) is compatible with transactions!
 (defn prepare
   (^AutoCloseable [client q]
@@ -333,65 +362,65 @@
 
              execute
              (fn [parameters]
-               (let [encoded-parameters (mapv bin/encode parameters)]
-                 (reify
-                   ;; FIXME: Add Seqable
-                   IReduceInit
-                   (reduce [_ rf init]
-                     (client/enqueue client {:type :bind :statement stmt-name :portal unnamed-portal :parameters encoded-parameters})
-                     (client/enqueue client {:type :execute :portal unnamed-portal :max-rows 0})
-                     (client/enqueue client {:type :sync})
-                     (client/flush client)
+               (reify
+                 ;; FIXME: Add Seqable
+                 IReduceInit
+                 (reduce [_ rf init]
+                   (execute client stmt-name parameters)
 
-                     ;; FIXME: If PostgreSQL returns error "0A000" (cached plan has
-                     ;; changed), re-prepare same statement and retry.
-                     (loop [command-complete {}
-                            data init
-                            ex nil]
-                       (let [{:keys [type] :as response} (client/recv client)]
-                         (case type
-                           :ready-for-query
-                           (cond
-                             (= "0A000" (-> ex ex-data :error-code))
-                             (do #_TODO)
-
-                             ex (throw ex)
-                             :else (unreduced data))
-
-                           :error
-                           (recur command-complete data (:ex response))
-
-                           :notice
+                   ;; FIXME: If PostgreSQL returns error "0A000" (cached plan has
+                   ;; changed), re-prepare same statement and retry.
+                   (loop [command-complete {}
+                          data init
+                          ex nil]
+                     (let [{:keys [type] :as response} (client/recv client)]
+                       (case type
+                         :ready-for-query
+                         (cond
+                           (= "0A000" (-> ex ex-data :error-code))
                            (do
-                             (client/log client :info ::server-notice {:notice response})
-                             (recur command-complete data ex))
+                             (close-statement client stmt-name)
+                             (prepare client q {:name stmt-name :oids oids})
+                             (execute client stmt-name parameters)
+                             (recur command-complete data nil))
 
-                           :copy-data
-                           (recur command-complete (rf-with rf data (response :data)) ex)
+                           ex (throw ex)
+                           :else (unreduced data))
 
-                           :copy-in
-                           (do
-                             (client/enqueue client {:type :copy-done})
-                             (client/flush client)
-                             (anomaly! "Not implemented: COPY ... FROM STDIN" ::anomalies/unsupported {:type type}))
+                         :error
+                         (recur command-complete data (:ex response))
 
-                           (:command-complete :portal-suspended :empty-query)
-                           ;; TODO: OK?
-                           (if ex
-                             (throw ex)
-                             (recur command-complete data ex))
+                         :notice
+                         (do
+                           (client/log client :info ::server-notice {:notice response})
+                           (recur command-complete data ex))
 
-                           (:bind-complete :copy-out :copy-done :no-data)
-                           (recur command-complete data ex)
+                         :copy-data
+                         (recur command-complete (rf-with rf data (response :data)) ex)
 
-                           :parameter
-                           (let [parameter (response :parameter)]
-                             (recur command-complete (rf-with rf data parameter) ex))
+                         :copy-in
+                         (do
+                           (client/enqueue client {:type :copy-done})
+                           (client/flush client)
+                           (anomaly! "Not implemented: COPY ... FROM STDIN" ::anomalies/unsupported {:type type}))
 
-                           :data-row
-                           (let [tuples (response :tuple)
-                                 data-row (data-row/parse attrs tuples {:query-fn query-fn :key-fn key-fn :format :bin})]
-                             (recur command-complete (rf-with rf data data-row) ex)))))))))]
+                         (:command-complete :portal-suspended :empty-query)
+                         ;; TODO: OK?
+                         (if ex
+                           (throw ex)
+                           (recur command-complete data ex))
+
+                         (:bind-complete :copy-out :copy-done :no-data)
+                         (recur command-complete data ex)
+
+                         :parameter
+                         (let [parameter (response :parameter)]
+                           (recur command-complete (rf-with rf data parameter) ex))
+
+                         :data-row
+                         (let [tuples (response :tuple)
+                               data-row (data-row/parse attrs tuples {:query-fn query-fn :key-fn key-fn :format :bin})]
+                           (recur command-complete (rf-with rf data data-row) ex))))))))]
 
          (reify
            IFn
@@ -446,26 +475,7 @@
 
            AutoCloseable
            (close [_]
-             (client/enqueue client {:type :close :target :statement :name stmt-name})
-             (client/enqueue client {:type :sync})
-             (client/flush client)
-
-             (loop [ex nil]
-               (let [{:keys [type] :as response} (client/recv client)]
-                 (case type
-                   :ready-for-query
-                   (when ex (throw ex))
-
-                   :error
-                   (recur (:ex response))
-
-                   ;; Might get one of these when closing the statement before
-                   ;; executing it.
-                   (:command-complete :parameter-description :row-description :bind-complete :data-row)
-                   (recur ex)
-
-                   :close-complete
-                   (recur ex)))))))))))
+             (close-statement client stmt-name))))))))
 
 (comment
   (def pg (connect :key-fn (fn [_ attr-name] (keyword attr-name))))

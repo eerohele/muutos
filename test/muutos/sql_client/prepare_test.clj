@@ -224,19 +224,18 @@
       (is (= [{:n 12}] (into [] p))))))
 
 ;; TODO
-#_(deftest alter-table
-    (with-open [pg ($)]
+(deftest alter-table
+  (with-open [pg ($)]
+    (eq pg
+      ["CREATE TABLE t (id int PRIMARY KEY, a int)"]
+      ["INSERT INTO t (id, a) VALUES (1, 10)"])
+
+    (with-open [as-by-ids (sql/prepare pg "SELECT * FROM t WHERE id = ANY($1) ORDER BY a ASC")]
+      (is (= [{:id 1 :a 10}] (into [] (as-by-ids (int-array [1])))))
+
       (eq pg
-        ["CREATE TABLE t (id int PRIMARY KEY, a int)"]
-        ["INSERT INTO t (id, a) VALUES (1, 10)"])
+        ["ALTER TABLE t ADD COLUMN b int"]
+        ["INSERT INTO t (id, a, b) VALUES (2, 20, 200)"])
 
-      (with-open [as-by-ids (sql/prepare pg "SELECT * FROM t WHERE id = ANY($1) ORDER BY a ASC")]
-        (is (= [{:id 1 :a 10}] (into [] (as-by-ids (int-array [1])))))
-
-        (eq pg
-          ["ALTER TABLE t ADD COLUMN b int"]
-          ["INSERT INTO t (id, a, b) VALUES (2, 20, 200)"])
-
-        ;; TODO: Test a statement that a) is valid after ALTER TABLE and b) is not
-
-        (is (= [{:id 1 :a 10}] (into [] (as-by-ids (int-array [1]))))))))
+      ;; Statement that works after ALTER
+      (is (= [{:a 10 :id 1} {:a 20 :id 2}] (into [] (as-by-ids (int-array [1 2]))))))))
