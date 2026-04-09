@@ -105,7 +105,7 @@
 (deftest close-before-execute
   (with-open [pg ($)
               sum (sql/prepare pg "SELECT $1 + $2 AS n" {:oids [(int 20) (int 20)]})]
-    ;; Closing a prepared statement that hasn't been executed doesn't throw.
+    ;; Closing a prepared statement that hasn't been reduced doesn't throw.
     (is (instance? IReduceInit (sum 1 2)))))
 
 (deftest parse-error
@@ -205,6 +205,23 @@
               {:id 2 :a 20}
               {:id 3 :a 30}]
             (into [] (as-by-ids (int-array [1 2 3]))))))))
+
+(deftest interlace
+  (with-open [pg ($)
+              sum (sql/prepare pg "SELECT $1 + $2 AS n" {:oids [(int 20) (int 20)]})
+              product (sql/prepare pg "SELECT $1 * $2 AS n" {:oids [(int 20) (int 20)]})]
+    ;; The order in which you execute the prepared statements does not matter.
+    ;;
+    ;; If we (incorrectly) did Bind -> Execute -> Sync outside of reduce, it would.
+    (let [s (sum 1 2)
+          p (product 3 4)]
+      (is (= [{:n 3}] (into [] s)))
+      (is (= [{:n 12}] (into [] p))))
+
+    (let [p (product 3 4)
+          s (sum 1 2)]
+      (is (= [{:n 3}] (into [] s)))
+      (is (= [{:n 12}] (into [] p))))))
 
 ;; TODO
 #_(deftest alter-table
