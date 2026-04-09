@@ -21,7 +21,8 @@
   (flush [this])
   (recv [this])
   (oid [this x])
-  (aux [this]))
+  (aux [this])
+  (closed? [this]))
 
 (defn ^:private concat-bytes [& bas]
   (with-open [baos (ByteArrayOutputStream.)]

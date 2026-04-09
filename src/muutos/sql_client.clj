@@ -147,6 +147,9 @@
 
           (aux [_] aux-client)
 
+          (closed? [_]
+            (connection/closed? connection))
+
           Lockable
           (lock [_] -lock)
 
