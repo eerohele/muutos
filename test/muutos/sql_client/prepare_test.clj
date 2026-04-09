@@ -122,6 +122,18 @@
     (with-open [sum (sql/prepare pg "SELECT $1 + $2 AS n" {:oids [(int 20) (int 20)]})]
       (is (= #{{:n 3}} (into #{} (sum 1 2)))))))
 
+(deftest no-parameter
+  (with-open [pg ($)
+              no-param (sql/prepare pg "SELECT 1 AS n")]
+    (is (= [{:n 1}] (into [] (no-param))))))
+
+(deftest returning
+  (with-open [pg ($)]
+    (eq pg ["CREATE TABLE t (a int8, b text)"])
+
+    (with-open [put-t (sql/prepare pg "INSERT INTO t (a, b) VALUES ($1, $2) RETURNING a, b")]
+      (is (= [{:a 1 :b "c"}] (into [] (put-t 1 "c")))))))
+
 (deftest bad-parameter
   (with-open [pg ($)
               sum (sql/prepare pg "SELECT $1 + $2 AS n" {:oids [(int 20) (int 20)]})]
