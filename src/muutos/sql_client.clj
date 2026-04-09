@@ -3,6 +3,7 @@
 
   Suitable for diagnostics, debugging, and low-throughput use cases."
   (:require [cognitect.anomalies :as-alias anomalies]
+            [clojure.core :as core]
             [muutos.codec.bin :as bin]
             [muutos.error :as-alias error]
             [muutos.impl.anomaly :refer [anomaly!]]
@@ -12,7 +13,8 @@
             [muutos.impl.hook :as hook]
             [muutos.impl.lockable :refer [Lockable with-lock]]
             [muutos.impl.type :as type])
-  (:import (java.lang AutoCloseable)
+  (:import (clojure.lang IFn IReduceInit Seqable)
+           (java.lang AutoCloseable)
            (java.util.concurrent.locks ReentrantLock)))
 
 (set! *warn-on-reflection* true)
@@ -287,6 +289,256 @@
   (def pg (connect))
   (AutoCloseable/.close pg)
   (eq pg ["SELECT $1 AS n" 1])
+  (eq pg ["SELECT 1"])
+  ,,,)
+
+(defmacro ^:private rf-with [rf acc x]
+  `(let [acc# ~acc]
+     (if (reduced? acc#)
+       acc#
+       (~rf acc# ~x))))
+
+;; FIXME: Make sure prepare (when using IFn) is compatible with transactions!
+(defn prepare
+  (^AutoCloseable [client q]
+   (prepare client q {}))
+  (^AutoCloseable [client q {:keys [name oids]}]
+   (let [stmt-name (or (some-> name core/name) (str "ms_" (random-uuid)))
+         {:keys [key-fn]} (client/options client)
+         query-fn (fn [qvec] (eq (client/aux client) qvec))]
+     (with-lock client
+       (client/enqueue client {:type :parse :statement stmt-name :query q :oids oids})
+       (client/enqueue client {:type :describe :target :statement :name stmt-name})
+       (client/enqueue client {:type :sync})
+       (client/flush client)
+
+       (let [attrs (loop [data []
+                          attrs {}
+                          ex nil]
+                     (let [{:keys [type] :as response} (client/recv client)]
+                       (case type
+                         :ready-for-query
+                         (if ex
+                           (handle-error! client ex)
+                           attrs)
+
+                         :row-description
+                         (recur data (response :attrs) ex)
+
+                         (:parameter-description :no-data :parse-complete)
+                         (recur data attrs ex)
+
+                         :error
+                         (recur data attrs (response :ex)))))
+
+             execute (fn [parameters]
+                       (let [parameters (mapv bin/encode parameters)]
+                         (client/enqueue client {:type :bind :statement stmt-name :portal unnamed-portal :parameters parameters})
+                         (client/enqueue client {:type :execute :portal unnamed-portal :max-rows 0})
+                         (client/enqueue client {:type :sync})
+                         (client/flush client)
+
+                         (reify
+                           ;; FIXME: Add Seqable
+                           IReduceInit
+                           (reduce [_ rf init]
+                             ;; FIXME: If PostgreSQL returns error "0A000" (cached plan has
+                             ;; changed), re-prepare same statement and retry.
+                             (loop [command-complete {}
+                                    data init
+                                    ex nil]
+                               (let [{:keys [type] :as response} (client/recv client)]
+                                 (case type
+                                   :ready-for-query
+                                   (if ex
+                                     (throw ex)
+                                     (unreduced data))
+
+                                   :error
+                                   (recur command-complete data (:ex response))
+
+                                   :notice
+                                   (do
+                                     (client/log client :info ::server-notice {:notice response})
+                                     (recur command-complete data ex))
+
+                                   :copy-data
+                                   (recur command-complete (rf-with rf data (response :data)) ex)
+
+                                   :copy-in
+                                   (do
+                                     (client/enqueue client {:type :copy-done})
+                                     (client/flush client)
+                                     (anomaly! "Not implemented: COPY ... FROM STDIN" ::anomalies/unsupported {:type type}))
+
+                                   (:command-complete :portal-suspended :empty-query)
+                                   ;; TODO: OK?
+                                   (if ex
+                                     (throw ex)
+                                     (recur command-complete data ex))
+
+                                   (:bind-complete :copy-out :copy-done :no-data)
+                                   (recur command-complete data ex)
+
+                                   :parameter
+                                   (let [parameter (response :parameter)]
+                                     (recur command-complete (rf-with rf data parameter) ex))
+
+                                   :data-row
+                                   (let [tuples (response :tuple)
+                                         data-row (data-row/parse attrs tuples {:query-fn query-fn :key-fn key-fn :format :bin})]
+                                     (recur command-complete (rf-with rf data data-row) ex)))))))))]
+
+         (reify
+           IFn
+           (invoke [_]
+             (execute []))
+           (invoke [_ a1]
+             (execute [a1]))
+           (invoke [_ a1 a2]
+             (execute [a1 a2]))
+           (invoke [_ a1 a2 a3]
+             (execute [a1 a2 a3]))
+           (invoke [_ a1 a2 a3 a4]
+             (execute [a1 a2 a3 a4]))
+           (invoke [_ a1 a2 a3 a4 a5]
+             (execute [a1 a2 a3 a4 a5]))
+           (invoke [_ a1 a2 a3 a4 a5 a6]
+             (execute [a1 a2 a3 a4 a5 a6]))
+           (invoke [_ a1 a2 a3 a4 a5 a6 a7]
+             (execute [a1 a2 a3 a4 a5 a6 a7]))
+           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8]
+             (execute [a1 a2 a3 a4 a5 a6 a7 a8]))
+           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9]
+             (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9]))
+           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10]
+             (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10]))
+           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11]
+             (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11]))
+           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12]
+             (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12]))
+           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13]
+             (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13]))
+           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14]
+             (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14]))
+           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15]
+             (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15]))
+           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16]
+             (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16]))
+           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17]
+             (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17]))
+           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18]
+             (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18]))
+           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18 a19]
+             (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18 a19]))
+           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18 a19 a20]
+             (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18 a19 a20]))
+           ;; FIXME: Is this correct?
+           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18 a19 a20 args]
+             (execute (into [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18 a19 a20] args)))
+
+           (applyTo [_ arglist]
+             (execute arglist))
+
+           AutoCloseable
+           (close [_]
+             (client/enqueue client {:type :close :target :statement :name stmt-name})
+             (client/enqueue client {:type :sync})
+             (client/flush client)
+
+             (loop [ex nil]
+               (let [{:keys [type] :as response} (client/recv client)]
+                 (case type
+                   :ready-for-query
+                   (when ex (throw ex))
+
+                   :error
+                   (recur (:ex response))
+
+                   ;; Might get one of these when closing the statement before
+                   ;; executing it.
+                   (:command-complete :parameter-description :row-description :bind-complete :data-row)
+                   (recur ex)
+
+                   :close-complete
+                   (recur ex)))))))))))
+
+(comment
+  (def pg (connect :key-fn (fn [_ attr-name] (keyword attr-name))))
+  (.close pg)
+  (eq pg
+    ["CREATE TABLE t (id int PRIMARY KEY, a int)"]
+    ["INSERT INTO t (id, a) VALUES (1, 10)"])
+
+  (def as-by-ids (prepare pg "SELECT * FROM t WHERE id = ANY($1)  ORDER BY a ASC"))
+
+
+  (prn (= [{:id 1 :a 10}] (into [] (as-by-ids (int-array [1])))))
+
+  (eq pg
+    ["ALTER TABLE t ADD COLUMN b int"]
+    ["INSERT INTO t (id, a, b) VALUES (2, 20, 200)"])
+
+  ;; TODO: Test a statement that a) is valid after ALTER TABLE and b) is not
+
+  (prn (= [{:id 1 :a 10}] (into [] (as-by-ids (int-array [1])))))
+  ,,,)
+
+(comment
+  ;; FIXME: Maybe instead of the current approach, make statement name
+  ;; (keyword? symbol?) mandatory and force the user to use that to refer to
+  ;; the client-side prepared statement. That way maybe the user could just
+  ;; prepare all statements upon connection, then use the name to refer to
+  ;; them when calling?
+  (def db (connect :key-fn (fn [_ attr-name] (keyword attr-name))))
+  (.close db)
+
+  (prepare db "SELECT bad" [(int 25) (int 25)])
+
+  ;; Prepare a statement that accepts one int4 array (OID 1007) as a parameter
+  (def films-by-ids
+    (prepare db "SELECT * FROM film WHERE film_id = ANY($1)" {:name 'films-by-ids}))
+
+  ;; Execute the statement. Pass int-array of [3 2] as parameter.
+  ;;
+  ;; Executing the statement returns a clojure.lang.IReduceInit, which we
+  ;; reduce into a vector using `into`.
+  (into [] (execute db 'films-by-ids [(int-array [1 2 3 4 5])]))
+  (into [] (execute db 'films-by-ids [(int-array [1 2 3 4 5])]))
+  (seq (execute db 'films-by-ids [(int-array [1 2 3 4 5])]))
+
+  (sq db "BEGIN TRANSACTION")
+  (into [] (films-by-ids (int-array [1 2 3 4 5])))
+  (sq db "COMMIT")
+
+  (into []
+    #_(halt-when (fn [film] (= "G" (:rating film))))
+    (films-by-ids (int-array [4])))
+
+  (vec (films-by-ids (int-array [4])))
+  (vec (films-by-ids (int-array [5])))
+  (seq (films-by-ids (int-array [5])))
+
+  (def sum
+    (prepare db 'sum "SELECT $1 + $2 + $3 + $4 + $5 + $6 AS n" {:oids [(int 20) (int 20) (int 20) (int 20) (int 20) (int 20)]}))
+
+  (.close sum)
+
+  (into [] (execute db 'sum [1 2 3 4 5 6]))
+  (into [] (sum 1 2 3 4 5 6))
+  (into [] (sum 7 8 9 10 11 12))
+  (into [] (sum 7 8 9 10 11 12 13))
+
+  ;; Close the prepared statement.
+  ;;
+  ;; Attempting to execute the statement after closing it yields an error like
+  ;; this:
+  ;;
+  ;;     prepared statement "m_1ba1d313-4bad-4ac9-bb5e-020c679c96ad" does not exist
+  (.close film-by-ids)
+
+  (def all-films (prepare db "SELECT * FROM film"))
+  (into [] (all-films))
   ,,,)
 
 #_{:clj-kondo/ignore [:unused-binding]}
