@@ -159,6 +159,13 @@
 
     (with-meta client (assoc session :options (select-keys options [:key-fn])))))
 
+(defn ^:private handle-error! [client ex]
+  (if (= ::error/server-error (-> ex ex-data :kind))
+    (throw ex)
+    (do
+      (AutoCloseable/.close client)
+      (anomaly! "Fatal error when reading server response; closing client to prevent protocol desynchronization" ::anomalies/fault (ex-data ex) ex))))
+
 (def ^:private unnamed-statement "")
 (def ^:private unnamed-portal "")
 
@@ -266,11 +273,7 @@
                                 (catch Throwable ex
                                   ;; If the event loop throws e.g. an OutOfMemoryError, let it crash to
                                   ;; prevent the event loop from getting out of sync.
-                                  (if (= ::error/server-error (-> ex ex-data :kind))
-                                    (throw ex)
-                                    (do
-                                      (AutoCloseable/.close client)
-                                      (anomaly! "Fatal error when reading server response; closing client to prevent protocol desynchronization" ::anomalies/fault (ex-data ex) ex)))))]
+                                  (handle-error! client ex)))]
                     (recur (inc i) (conj! data datum)))))]
           ;; If everything went well, we'll receive :ready-for-query only after
           ;; reading until :command-complete for every input query.
@@ -367,13 +370,6 @@
     (reduce [_ rf init]
       (-reduce client rf init))))
 
-(defn ^:private handle-error! [client ex]
-  (if (= ::error/server-error (-> ex ex-data :kind))
-    (throw ex)
-    (do
-      (AutoCloseable/.close client)
-      (anomaly! "Fatal error when reading server response; closing client to prevent protocol desynchronization" ::anomalies/fault (ex-data ex) ex))))
-
 (defn prepare
   (^AutoCloseable [client q]
    (prepare client q {}))
@@ -381,23 +377,23 @@
    (let [stmt-name (or (some-> name core/name) (str "ms_" (random-uuid)))]
      (with-lock client
        (client/enqueue client {:type :parse :statement stmt-name :query q :oids oids})
-       (client/enqueue client {:type :flush})
+       (client/enqueue client {:type :sync})
        (client/flush client)
 
-       (let [{:keys [type] :as response} (client/recv client)]
-         (case type
-           :parse-complete response
+       (loop [data []
+              ex nil]
+         (let [{:keys [type] :as response} (client/recv client)]
+           (case type
+             :ready-for-query
+             (if ex
+               (handle-error! client ex)
+               data)
 
-           :error
-           (do
-             (client/enqueue client {:type :sync})
-             (client/flush client)
+             :parse-complete
+             (recur data ex)
 
-             (let [ex (response :ex)
-                   {:keys [type]} (client/recv client)]
-               (case type
-                 :ready-for-query
-                 (handle-error! client ex)))))))
+             :error
+             (recur nil (response :ex))))))
 
      (reify
        IFn
@@ -429,7 +425,7 @@
 
                ;; Might get one of these when closing the statement before
                ;; executing it.
-               (:parameter-description :row-description :bind-complete :data-row)
+               (:command-complete :parameter-description :row-description :bind-complete :data-row)
                (recur ex)
 
                :close-complete
@@ -567,11 +563,7 @@
          (catch Throwable ex
            ;; If the event loop throws e.g. an OutOfMemoryError, let it crash to
            ;; prevent the event loop from getting out of sync.
-           (if (= ::error/server-error (-> ex ex-data :kind))
-             (throw ex)
-             (do
-               (AutoCloseable/.close client)
-               (anomaly! "Fatal error when reading server response; closing client to prevent protocol desynchronization" ::anomalies/fault (ex-data ex) ex)))))))))
+           (handle-error! client ex)))))))
 
 (comment
   (def pg (connect))

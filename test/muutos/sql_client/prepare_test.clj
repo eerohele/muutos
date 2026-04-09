@@ -103,7 +103,7 @@
   (with-open [pg ($)
               sum (sql/prepare pg "SELECT $1 + $2 AS n" {:oids [(int 20) (int 20)]})]
     ;; Closing a prepared statement that hasn't been executed doesn't throw.
-    ))
+    (is (instance? IReduceInit (sum 1 2)))))
 
 (deftest parse-error
   (with-open [pg ($)]
