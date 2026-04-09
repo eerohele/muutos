@@ -116,8 +116,28 @@
     ;; No protocol desynchronization
     (is (= [{:n 1}] (eq pg ["SELECT $1 AS n" 1])))
 
-    #_(with-open [sum (sql/prepare pg "SELECT $1 + $2 AS n" {:oids [(int 20) (int 20)]})]
+    (with-open [sum (sql/prepare pg "SELECT $1 + $2 AS n" {:oids [(int 20) (int 20)]})]
       (is (= #{{:n 3}} (into #{} (sum 1 2)))))))
+
+(deftest bad-parameter
+  (with-open [pg ($)
+              sum (sql/prepare pg "SELECT $1 + $2 AS n" {:oids [(int 20) (int 20)]})]
+    (is (thrown-match? ExceptionInfo {::anomalies/category
+                                      ::anomalies/unsupported}
+          (into #{} (sum [1 2]))))
+
+    (is (= #{{:n 3}} (into #{} (sum 1 2))))))
+
+(deftest already-exists
+  (with-open [pg ($)
+              sum (sql/prepare pg "SELECT $1 + $2 AS n" {:name 'sum :oids [(int 20) (int 20)]})]
+    (is (thrown-match? {:cause :duplicate-prepared-statement
+                        :error-code "42P05"
+                        :kind ::error/server-error
+                        :severity "ERROR"}
+          (sql/prepare pg "SELECT $1 + $2 AS n" {:name 'sum :oids [(int 20) (int 20)]})))
+
+    (is (= #{{:n 3}} (into #{} (sum 1 2))))))
 
 (deftest protocol-violation
   (with-open [pg ($)
