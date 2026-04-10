@@ -587,6 +587,97 @@
   (sq pg "SELECT * FROM pg_type")
   ,,,)
 
+(defmacro transact
+  "Given a client, an optional options map, and a body, execute the body inside
+  a transaction.
+
+  NOTE: The options map must be a literal map.
+
+  If the body throws, roll back the transaction, else commit.
+
+  Options:
+
+    :isolation-level (keyword, default: :serializable)
+      Transaction isolation level.
+
+    :access-mode (keyword, default: :read-write)
+      Transaction access mode.
+
+    :deferrable-mode (keyword, default: :deferrable)
+      Transaction deferrable mode.
+
+  See https://www.postgresql.org/docs/current/sql-set-transaction.html for more
+  information on the options."
+  [client & body]
+  (let [head (first body)
+
+        {:keys [isolation-level access-mode deferrable-mode]
+         :or {isolation-level :serializable
+              access-mode :read-write
+              deferrable-mode :deferrable}}
+        (if (map? head) head {})
+
+        form (if (map? head) (rest body) body)]
+
+    `(let [client# ~client]
+       (sq client#
+         (str "START TRANSACTION ISOLATION LEVEL "
+           (case ~isolation-level
+             :serializable "SERIALIZABLE"
+             :repeatable-read "REPEATABLE READ"
+             :read-committed "READ COMMITTED"
+             :read-uncommitted "READ UNCOMMITTED")
+           ","
+           (if (= :read-only ~access-mode) "READ ONLY" "READ WRITE")
+           ","
+           (if (= :deferrable ~deferrable-mode) "DEFERRABLE" "NOT DEFERRABLE")))
+       (try
+         (let [ret# (do ~@form)]
+           (sq client# "COMMIT")
+           ret#)
+         (catch Throwable ex#
+           (sq client# "ROLLBACK")
+           (throw ex#))))))
+
+(comment
+  (def pg (connect))
+  (.close pg)
+
+  (sq pg "DROP TABLE IF EXISTS t")
+
+  (transact pg
+    (sq pg "CREATE TABLE t (a int)")
+    (sq pg "INSERT INTO t VALUES (1)")
+    (throw (Exception. "Boom!")))
+
+  (transact pg {:isolation-level :repeatable-read
+                :deferrable-mode :deferrable}
+    (sq pg "CREATE TABLE t (a int)")
+    (sq pg "INSERT INTO t VALUES (1)")
+    (throw (Exception. "Boom!")))
+
+  (transact pg {:isolation-level :repeatable-read
+                :deferrable-mode :deferrable}
+    (sq "CREATE TABLE t (a int)")
+    (sq "INSERT INTO t VALUES (1)")
+    (throw (Exception. "Boom!")))
+
+  (eq pg ["SELECT * FROM t"])
+
+  (def put-t (prepare pg "INSERT INTO t VALUES ($1)"))
+  (def ts-by-a (prepare pg "SELECT * FROM t WHERE a = $1"))
+
+  (transact pg
+    (into [] (put-t (int 1)))
+    (into [] (ts-by-a (int 1)))
+    (throw (Exception. "Boom!")))
+
+(transact pg
+  (eq pg ["CREATE TABLE t (a int)"])
+  (eq pg ["INSERT INTO t VALUES ($1)" 1])
+  (eq pg ["SELECT * FROM t WHERE a = $1" 1]))
+  ,,,)
+
 (defmacro ignoring-dupes
   "Execute body.
 
