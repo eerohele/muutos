@@ -306,18 +306,20 @@
     :rental_rate 0.99M
     :replacement_cost 20.99M}])
 
+(println)
 (println "next.jdbc with statement cache")
-
 (bench/quick-bench
   (assert (= films (jdbc/execute! jdbc-conn-cache [(->jdbc q-film-by-id) 1] {:builder-fn opt/as-unqualified-lower-maps}))))
 
-(println "muutos prepare")
-
 (def film-by-id (sql/prepare pg q-film-by-id {:name 'film-by-id}))
 
+(println)
+(println "muutos prepare")
 (bench/quick-bench
   (assert (= films (into [] (film-by-id (int 1))))))
 
+(println)
+(println "muutos eq for comparison")
 (bench/quick-bench
   (assert (= films (sql/eq pg [q-film-by-id (int 1)]))))
 
@@ -334,14 +336,20 @@
    JOIN language ON language.language_id = film.language_id
    WHERE film.film_id = ANY($1)")
 
+(println)
+(println "next.jdbc with cache")
 (bench/quick-bench
   (jdbc/execute! jdbc-conn-cache [(->jdbc q-films-by-ids) (int-array [1 2 3 4 5 6 7 8 9 10])]
     {:builder-fn opt/as-unqualified-lower-maps}))
 
 (def films-by-ids (sql/prepare pg q-films-by-ids {:name 'films-by-ids}))
 
+(println)
+(println "muutos prepare")
 (bench/quick-bench
   (into [] (films-by-ids (int-array [1 2 3 4 5 6 7 8 9 10]))))
 
+(println)
+(println "muutos eq for comparison")
 (bench/quick-bench
   (sql/eq pg [q-films-by-ids (int-array [1 2 3 4 5 6 7 8 9 10])]))
