@@ -14,8 +14,6 @@
             [muutos.sql-client :refer [eq sq emit-message] :as sql-client]
             [muutos.subscriber :as subscriber]
             [muutos.test.concurrency :refer [concurrently]]
-            [muutos.test.container :as container]
-            [muutos.test.server :as server :refer [host port]]
             [muutos.type])
   (:import (clojure.lang ExceptionInfo)
            (java.lang AutoCloseable)
@@ -25,7 +23,9 @@
            (java.time Duration Instant)
            (java.util Arrays)
            (java.util.concurrent ArrayBlockingQueue BlockingQueue ExecutorService RejectedExecutionException SynchronousQueue TimeUnit)
-           (java.util.concurrent.locks ReentrantLock)))
+           (java.util.concurrent.locks ReentrantLock)
+           (org.netcrusher.core.reactor NioReactor)
+           (org.netcrusher.tcp TcpCrusher TcpCrusherBuilder)))
 
 (set! *warn-on-reflection* true)
 
@@ -43,30 +43,20 @@
                          (model/->Mismatch this actual))
        ::result/weight 1})))
 
-(def container-opts
-  (assoc container/default-opts :command ["postgres"
-                                          "-c" "wal_level=logical"
-                                          "-c" "wal_sender_timeout=10s"
-                                          "-c" "max_wal_senders=4"
-                                          "-c" "max_replication_slots=1"]))
-
-(defonce server
-  (delay (server/start container-opts)))
-
-(comment (.close @server) ,,,)
+(defn clear-db! [& {:keys [host port]}]
+  (with-open [client (sql-client/connect :host host :port port)]
+    (sq client "DROP DATABASE IF EXISTS test WITH (FORCE)")
+    (sq client "CREATE DATABASE test")))
 
 (use-fixtures :each
   (fn [f]
-    (with-open [client (sql-client/connect :host (host @server) :port (port @server))]
-      (sq client "DROP DATABASE test WITH (FORCE)")
-      (sq client "CREATE DATABASE test"))
-
+    (clear-db! :host "localhost" :port 5434)
     (f)))
 
 (defn test-client ^AutoCloseable [& {:as opts}]
   (try
     (sql-client/connect
-      (merge {:database "test" :host (host @server) :port (port @server)} opts))
+      (merge {:database "test" :host "localhost" :port 5434} opts))
     (catch ExceptionInfo ex
       (if (= :cannot-connect-now (:cause (ex-data ex)))
         (do (Thread/sleep 1000)
@@ -75,8 +65,8 @@
 
 (defn test-options [& {:as options}]
   (conj {:database "test"
-         :host (host @server)
-         :port (port @server)} options))
+         :host "localhost"
+         :port 5434} options))
 
 (defn connect ^AutoCloseable [slot-name & {:as options}]
   (subscriber/connect slot-name (test-options options)))
@@ -419,8 +409,8 @@
                          {:executor executor
                           :executor-close-fn ExecutorService/.shutdownNow
                           :database "test"
-                          :host (host @server)
-                          :port (port @server)
+                          :host "localhost"
+                          :port 5434
                           :handler (q-handler q)})]
 
         (emit-message client "prefix" "message-1")
@@ -453,8 +443,8 @@
                   _slot (replication-slot "s")]
         (let [sub (subscriber/connect "s"
                     {:database "test"
-                     :host (host @server)
-                     :port (port @server)
+                     :host "localhost"
+                     :port 5434
                      :executor executor
                      :executor-close-fn ExecutorService/.shutdownNow
                      :handler (q-handler q)})]
@@ -745,17 +735,45 @@
                                           :severity "ERROR"}
               (deref subscriber)))))))
 
+(comment
+  (import '(org.netcrusher.core.reactor NioReactor))
+  (import '(org.netcrusher.tcp TcpCrusher TcpCrusherBuilder))
+
+  (def reactor (NioReactor.))
+
+  (def crusher
+    (->
+      (TcpCrusherBuilder/builder)
+      (.withReactor reactor)
+      (.withBindAddress "localhost" 10080)
+      (.withConnectAddress "localhost" 5433)
+      (.buildAndOpen)))
+
+  (def pg (muutos.sql-client/connect :port 10080))
+  (eq pg ["SELECT 1"])
+  (TcpCrusher/.freeze crusher)
+  (.close crusher)
+  ,,,)
+
 (deftest ^:integration deref-throws-upon-disconnect
+  (clear-db! :host "localhost" :port 5434)
+
   ;; Check that dereffing the subscriber throws when disconnected from server.
-  (let [server (server/start container-opts)
-        client (test-client :port (port server) :replication :database)]
+  (let [reactor (NioReactor.)
+        crusher (->
+                  (TcpCrusherBuilder/builder)
+                  (.withReactor reactor)
+                  (.withBindAddress "localhost" 10080)
+                  (.withConnectAddress "localhost" 5434)
+                  (.buildAndOpen))
+        client (test-client :port 10080 :replication :database)]
     (try
       (sq client (format "CREATE_REPLICATION_SLOT %s LOGICAL pgoutput" "s"))
       (let [subscriber (subscriber/connect "s"
-                         (test-options
-                           :port (port server)
-                           :publications #{"p"}))]
-        (AutoCloseable/.close server)
+                         (test-options :port 10080 :publications #{"p"}))]
+
+        (.close crusher)
+        (.close reactor)
 
         (is (thrown-match? ExceptionInfo {::anomalies/category ::anomalies/unavailable}
               (deref subscriber))))
@@ -859,16 +877,17 @@
     byte-array))
 
 (deftest ^:integration transaction-streaming-commit
+  ;; FIXME?
+  (clear-db! :host "localhost" :port 5435)
+
   (let [q (SynchronousQueue.)
         bytes-1 (generate-random-bytes 64)
         bytes-2 (generate-random-bytes 64)]
-    (with-open [server (server/start
-                         (update container-opts :command conj "-c" "logical_decoding_work_mem=64kB"))
-                _slot (replication-slot "s" {:port (port server)})
-                client (test-client :port (port server))]
+    (with-open [_slot (replication-slot "s" {:port 5435})
+                client (test-client :port 5435)]
 
       (with-open [_sub (connect "s"
-                         :port (port server)
+                         :port 5435
                          :handler (q-handler q)
                          :protocol-version 2
                          :streaming true)]
@@ -905,21 +924,21 @@
       ;; from this message.
       (emit-message client "prefix" (byte-array [65]))
 
-      (with-open [_sub (connect "s" :port (port server) :handler (q-handler q))]
+      (with-open [_sub (connect "s" :port 5435 :handler (q-handler q))]
         (is (match? begin (poll q)))
         (is (match? (message "prefix" (byte-array [65])) (poll q)))
         (is (match? commit (poll q)))))))
 
 (deftest ^:integration transaction-streaming-abort
+  (clear-db! :host "localhost" :port 5435)
+
   (let [q (SynchronousQueue.)
         bytes-1 (generate-random-bytes 64)]
-    (with-open [server (server/start
-                         (update container-opts :command conj "-c" "logical_decoding_work_mem=64kB"))
-                _slot (replication-slot "s" {:port (port server)})
-                client (test-client :port (port server))]
+    (with-open [_slot (replication-slot "s" {:port 5435})
+                client (test-client :port 5435)]
 
       (with-open [_sub (connect "s"
-                         :port (port server)
+                         :port 5435
                          :handler (q-handler q)
                          :protocol-version 2
                          :streaming true)]
@@ -948,21 +967,21 @@
       ;; from this message.
       (emit-message client "prefix" (byte-array [65]))
 
-      (with-open [_sub (connect "s" :port (port server) :handler (q-handler q))]
+      (with-open [_sub (connect "s" :port 5435 :handler (q-handler q))]
         (is (match? begin (poll q)))
         (is (match? (message "prefix" (byte-array [65])) (poll q)))
         (is (match? commit (poll q)))))))
 
 (deftest ^:integration transaction-streaming-parallel-abort
+  (clear-db! :host "localhost" :port 5435)
+
   (let [q (SynchronousQueue.)
         bytes-1 (generate-random-bytes 64)]
-    (with-open [server (server/start
-                         (update container-opts :command conj "-c" "logical_decoding_work_mem=64kB"))
-                _slot (replication-slot "s" {:port (port server)})
-                client (test-client :port (port server))]
+    (with-open [_slot (replication-slot "s" {:port 5435})
+                client (test-client :port 5435)]
 
       (with-open [_sub (connect "s"
-                         :port (port server)
+                         :port 5435
                          :handler (q-handler q)
                          :protocol-version 4
                          :streaming :parallel)]
@@ -993,7 +1012,7 @@
       ;; from this message.
       (emit-message client "prefix" (byte-array [65]))
 
-      (with-open [_sub (connect "s" :port (port server) :handler (q-handler q))]
+      (with-open [_sub (connect "s" :port 5435 :handler (q-handler q))]
         (is (match? begin (poll q)))
         (is (match? (message "prefix" (byte-array [65])) (poll q)))
         (is (match? commit (poll q)))))))
@@ -1183,10 +1202,9 @@
         (is (match? commit (poll q)))))))
 
 (deftest wal-sender-timeout
-  (with-open [server (server/start
-                       (-> container-opts
-                         (update :command conj "-c" "wal_sender_timeout=1")))
-              _slot (replication-slot "s" {:port (port server)})
-              sub (connect "s" :port (port server))]
+  (clear-db! :host "localhost" :port 5436)
+
+  (with-open [_slot (replication-slot "s" {:port 5436})
+              sub (connect "s" :port 5436)]
     (is (thrown-match? ExceptionInfo {::anomalies/category ::anomalies/unavailable}
           (deref sub)))))
