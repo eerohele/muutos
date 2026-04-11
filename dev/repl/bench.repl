@@ -1,5 +1,7 @@
 (require '[next.jdbc :as jdbc])
 (require '[next.jdbc.connection :as connection])
+(require '[next.jdbc.prepare :as p])
+(require '[next.jdbc.optional :as opt])
 (require '[muutos.test.concurrency :refer [concurrently]])
 (require '[criterium.core :as bench])
 
@@ -281,3 +283,73 @@
     (jdbc/execute! tx [(->jdbc q-insert-actor) "HUMPHREY" "DIESEL"])
     (jdbc/execute! tx [(->jdbc q-insert-film-actor)])
     (jdbc/execute! tx [(->jdbc q-actor-by-title) "GALAXY TORRENT"])))
+
+(println)
+(println "next.jdbc prepare")
+(def jdbc-stmt (jdbc/prepare jdbc-conn [(->jdbc q-film-by-id)]))
+(bench/quick-bench (jdbc/execute! (p/set-parameters jdbc-stmt [1])))
+
+(def jdbc-conn-cache
+  (jdbc/get-connection {:dbtype "postgres"
+                        :dbname "postgres"
+                        :user "postgres"
+                        :password "postgres"
+                        :prepareThreshold 5}))
+
+(def films
+  [{:release_year 2012
+    :length 86
+    :language "English"
+    :title "ACADEMY DINOSAUR"
+    :rating "PG"
+    :description "A Epic Drama of a Feminist And a Mad Scientist who must Battle a Teacher in The Canadian Rockies"
+    :rental_rate 0.99M
+    :replacement_cost 20.99M}])
+
+(println)
+(println "next.jdbc with statement cache")
+(bench/quick-bench
+  (assert (= films (jdbc/execute! jdbc-conn-cache [(->jdbc q-film-by-id) 1] {:builder-fn opt/as-unqualified-lower-maps}))))
+
+(def film-by-id (sql/prepare pg q-film-by-id {:name 'film-by-id}))
+
+(println)
+(println "muutos prepare")
+(bench/quick-bench
+  (assert (= films (into [] (film-by-id (int 1))))))
+
+(println)
+(println "muutos eq for comparison")
+(bench/quick-bench
+  (assert (= films (sql/eq pg [q-film-by-id (int 1)]))))
+
+(def q-films-by-ids
+  "SELECT release_year,
+          length,
+          TRIM(language.name) AS language,
+          title,
+          rating,
+          description,
+          rental_rate,
+          replacement_cost
+   FROM film
+   JOIN language ON language.language_id = film.language_id
+   WHERE film.film_id = ANY($1)")
+
+(println)
+(println "next.jdbc with cache")
+(bench/quick-bench
+  (jdbc/execute! jdbc-conn-cache [(->jdbc q-films-by-ids) (int-array [1 2 3 4 5 6 7 8 9 10])]
+    {:builder-fn opt/as-unqualified-lower-maps}))
+
+(def films-by-ids (sql/prepare pg q-films-by-ids {:name 'films-by-ids}))
+
+(println)
+(println "muutos prepare")
+(bench/quick-bench
+  (into [] (films-by-ids (int-array [1 2 3 4 5 6 7 8 9 10]))))
+
+(println)
+(println "muutos eq for comparison")
+(bench/quick-bench
+  (sql/eq pg [q-films-by-ids (int-array [1 2 3 4 5 6 7 8 9 10])]))

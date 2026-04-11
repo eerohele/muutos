@@ -3,6 +3,7 @@
 
   Suitable for diagnostics, debugging, and low-throughput use cases."
   (:require [cognitect.anomalies :as-alias anomalies]
+            [clojure.core :as core]
             [muutos.codec.bin :as bin]
             [muutos.error :as-alias error]
             [muutos.impl.anomaly :refer [anomaly!]]
@@ -12,7 +13,8 @@
             [muutos.impl.hook :as hook]
             [muutos.impl.lockable :refer [Lockable with-lock]]
             [muutos.impl.type :as type])
-  (:import (java.lang AutoCloseable)
+  (:import (clojure.lang IFn IReduceInit Seqable)
+           (java.lang AutoCloseable)
            (java.util.concurrent.locks ReentrantLock)))
 
 (set! *warn-on-reflection* true)
@@ -288,6 +290,214 @@
   (AutoCloseable/.close pg)
   (eq pg ["SELECT $1 AS n" 1])
   ,,,)
+
+(defmacro ^:private rf-with [rf acc x]
+  `(let [acc# ~acc]
+     (if (reduced? acc#)
+       acc#
+       (try
+         (~rf acc# ~x)
+         (catch Throwable ex#
+           ex#)))))
+
+(defn ^:private ex? [x]
+  (instance? Throwable x))
+
+(defn ^:private close-statement [client stmt-name]
+  (client/enqueue client {:type :close :target :statement :name stmt-name})
+  (client/enqueue client {:type :sync})
+  (client/flush client)
+
+  (loop [ex nil]
+    (let [{:keys [type] :as response} (client/recv client)]
+      (case type
+        :ready-for-query
+        (when ex (throw ex))
+
+        :error
+        (recur (:ex response))
+
+        ;; Might get one of these when closing the statement before
+        ;; executing it.
+        (:command-complete :parameter-description :row-description :bind-complete :data-row)
+        (recur ex)
+
+        :close-complete
+        (recur ex)))))
+
+(defn ^:private execute [client stmt-name parameters]
+  (let [encoded-parameters (mapv bin/encode parameters)]
+    (client/enqueue client {:type :bind :statement stmt-name :portal unnamed-portal :parameters encoded-parameters})
+    (client/enqueue client {:type :execute :portal unnamed-portal :max-rows 0})
+    (client/enqueue client {:type :sync})
+    (client/flush client)))
+
+(defprotocol ^:private PreparedStatement
+  (^:private attributes [this]))
+
+;; FIXME: Make sure prepare (when using IFn) is compatible with transactions!
+(defn prepare
+  (^AutoCloseable [client q]
+   (prepare client q {}))
+  (^AutoCloseable [client q {:keys [name oids]}]
+   (let [stmt-name (or (some-> name core/name) (str "ms_" (random-uuid)))
+         {:keys [key-fn]} (client/options client)
+         query-fn (fn [qvec] (eq (client/aux client) qvec))]
+     (with-lock client
+       (client/enqueue client {:type :parse :statement stmt-name :query q :oids oids})
+       (client/enqueue client {:type :describe :target :statement :name stmt-name})
+       (client/enqueue client {:type :sync})
+       (client/flush client)
+
+       (let [attrs (loop [data []
+                          attrs {}
+                          ex nil]
+                     (let [{:keys [type] :as response} (client/recv client)]
+                       (case type
+                         :ready-for-query
+                         (if ex
+                           (handle-error! client ex)
+                           attrs)
+
+                         :row-description
+                         (recur data (response :attrs) ex)
+
+                         (:parameter-description :no-data :parse-complete)
+                         (recur data attrs ex)
+
+                         :error
+                         (recur data attrs (response :ex)))))
+
+             execute
+             (fn [parameters]
+               (reify
+                 ;; FIXME: Add Seqable
+                 IReduceInit
+                 (reduce [_ rf init]
+                   (with-lock client
+                     (execute client stmt-name parameters)
+
+                     (loop [attrs attrs
+                            data init
+                            ex nil]
+                       (let [{:keys [type] :as response} (client/recv client)]
+                         (case type
+                           :ready-for-query
+                           (cond
+                             ;; If PostgreSQL returns an error that indicates that the cached plan
+                             ;; has changed (e.g. because someone has executed ALTER TABLE on a
+                             ;; table the prepared statement uses), re-prepare the statement, then
+                             ;; retry.
+                             (-> ex ex-data :error-code (= "0A000"))
+                             (do
+                               (close-statement client stmt-name)
+                               (let [stmt (prepare client q {:name stmt-name :oids oids})]
+                                 (execute client stmt-name parameters)
+                                 (recur (attributes stmt) data nil)))
+
+                             ex (throw ex)
+
+                             :else (unreduced data))
+
+                           :error
+                           (recur attrs data (:ex response))
+
+                           :notice
+                           (do
+                             (client/log client :info ::server-notice {:notice response})
+                             (recur attrs data ex))
+
+                           :copy-data
+                           (let [data-or-ex (rf-with rf data (response :data))]
+                             (if (ex? data-or-ex)
+                               (recur attrs data data-or-ex)
+                               (recur attrs data-or-ex ex)))
+
+                           :copy-in
+                           (do
+                             (client/enqueue client {:type :copy-done})
+                             (client/flush client)
+                             (anomaly! "Not implemented: COPY ... FROM STDIN" ::anomalies/unsupported {:type type}))
+
+                           (:command-complete :empty-query)
+                           (recur attrs data ex)
+
+                           (:bind-complete :copy-out :copy-done :no-data)
+                           (recur attrs data ex)
+
+                           :parameter
+                           (let [parameter (response :parameter)
+                                 data-or-ex (rf-with rf data parameter)]
+                             (if (ex? data-or-ex)
+                               (recur attrs data data-or-ex)
+                               (recur attrs data-or-ex ex)))
+
+                           :data-row
+                           (let [tuples (response :tuple)
+                                 data-row (data-row/parse attrs tuples {:query-fn query-fn :key-fn key-fn :format :bin})
+                                 data-or-ex (rf-with rf data data-row)]
+                             (if (ex? data-or-ex)
+                               (recur attrs data data-or-ex)
+                               (recur attrs data-or-ex ex))))))))))]
+
+         (reify
+           IFn
+           (invoke [_]
+             (execute []))
+           (invoke [_ a1]
+             (execute [a1]))
+           (invoke [_ a1 a2]
+             (execute [a1 a2]))
+           (invoke [_ a1 a2 a3]
+             (execute [a1 a2 a3]))
+           (invoke [_ a1 a2 a3 a4]
+             (execute [a1 a2 a3 a4]))
+           (invoke [_ a1 a2 a3 a4 a5]
+             (execute [a1 a2 a3 a4 a5]))
+           (invoke [_ a1 a2 a3 a4 a5 a6]
+             (execute [a1 a2 a3 a4 a5 a6]))
+           (invoke [_ a1 a2 a3 a4 a5 a6 a7]
+             (execute [a1 a2 a3 a4 a5 a6 a7]))
+           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8]
+             (execute [a1 a2 a3 a4 a5 a6 a7 a8]))
+           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9]
+             (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9]))
+           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10]
+             (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10]))
+           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11]
+             (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11]))
+           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12]
+             (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12]))
+           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13]
+             (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13]))
+           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14]
+             (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14]))
+           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15]
+             (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15]))
+           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16]
+             (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16]))
+           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17]
+             (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17]))
+           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18]
+             (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18]))
+           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18 a19]
+             (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18 a19]))
+           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18 a19 a20]
+             (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18 a19 a20]))
+           ;; FIXME: Is this correct?
+           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18 a19 a20 args]
+             (execute (into [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18 a19 a20] args)))
+
+           (applyTo [_ arglist]
+             (execute arglist))
+
+           PreparedStatement
+           (attributes [_] attrs)
+
+           AutoCloseable
+           (close [_]
+             (with-lock client
+               (close-statement client stmt-name)))))))))
 
 #_{:clj-kondo/ignore [:unused-binding]}
 (defn sq
