@@ -596,6 +596,106 @@
   (sq pg "SELECT * FROM pg_type")
   ,,,)
 
+(defn begin
+  "Given a client and options, begin a transaction.
+
+  Options:
+
+    - `:isolation-level` (one of `#{:serializable :repeatable-read :read-committed :read-uncommitted}`)
+    - `:access-mode` (one of `#{:read-only :read-write}`)
+    - `:deferrable-mode` (one of `#{:deferrable :not-deferrable}`)
+
+  If you don't pass a value for an option, Muutos leaves the option unset and
+  defers the choice to PostgreSQL.
+
+  For more information about the options, see:
+
+  https://www.postgresql.org/docs/current/sql-set-transaction.html"
+  [client & {:keys [isolation-level access-mode deferrable-mode]}]
+  (sq client
+    (str "START TRANSACTION"
+      (case isolation-level
+        nil ""
+        :serializable " ISOLATION LEVEL SERIALIZABLE"
+        :repeatable-read " ISOLATION LEVEL REPEATABLE READ"
+        :read-committed " ISOLATION LEVEL READ COMMITTED"
+        :read-uncommitted " ISOLATION LEVEL READ UNCOMMITTED")
+      (case access-mode
+        nil ""
+        :read-only ", READ ONLY"
+        :read-write ", READ WRITE")
+      (case deferrable-mode
+        nil ""
+        :deferrable ", DEFERRABLE"
+        :not-deferrable ", NOT DEFERRABLE"))))
+
+(defn commit
+  "Given a client, commit the current transaction."
+  [client]
+  (sq client "COMMIT"))
+
+(defn rollback
+  "Given a client, roll back the current transaction."
+  [client]
+  (sq client "ROLLBACK"))
+
+(defmacro transact
+  "Given a client, an optional options map (which must be a compile-time
+  literal), and a body, execute the body inside a transaction.
+
+  If the body throws, roll back the transaction, else commit.
+
+  See `muutos.sql-client/begin` for options.
+
+  See https://www.postgresql.org/docs/current/sql-set-transaction.html for more
+  information on the options."
+  [client & body]
+  (let [head (first body)
+        options (if (map? head) head {})
+        form (if (map? head) (rest body) body)]
+    `(let [client# ~client]
+       (begin client# ~options)
+       (try
+         (let [ret# (do ~@form)]
+           (commit client#)
+           ret#)
+         (catch Throwable ex#
+           (rollback client#)
+           (throw ex#))))))
+
+(comment
+  (def pg (connect))
+  (.close pg)
+
+  (sq pg "DROP TABLE IF EXISTS t")
+
+  (transact pg
+    (sq pg "CREATE TABLE t (a int)")
+    (sq pg "INSERT INTO t VALUES (1)")
+    (throw (Exception. "Boom!")))
+
+  (transact pg {:isolation-level :repeatable-read
+                :deferrable-mode :deferrable}
+    (sq pg "CREATE TABLE t (a int)")
+    (sq pg "INSERT INTO t VALUES (1)")
+    (throw (Exception. "Boom!")))
+
+  (eq pg ["SELECT * FROM t"])
+
+  (def put-t (prepare pg "INSERT INTO t VALUES ($1)"))
+  (def ts-by-a (prepare pg "SELECT * FROM t WHERE a = $1"))
+
+  (transact pg
+    (into [] (put-t (int 1)))
+    (into [] (ts-by-a (int 1)))
+    #_(throw (Exception. "Boom!")))
+
+  (transact pg
+    (eq pg ["CREATE TABLE t (a int)"])
+    (eq pg ["INSERT INTO t VALUES ($1)" 1])
+    (eq pg ["SELECT * FROM t WHERE a = $1" 1]))
+  ,,,)
+
 (defmacro ignoring-dupes
   "Execute body.
 
