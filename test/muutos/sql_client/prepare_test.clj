@@ -183,9 +183,8 @@
 
 (deftest parameter
   (with-open [pg ($)
-              set-time-zone (sql/prepare pg "SET TIME ZONE 'Europe/Helsinki'")]
-    ;; FIXME
-    (is (= [["TimeZone" "Europe/Helsinki"]] (into [] (set-time-zone))))
+              set-time-zone (sql/prepare pg "SET TIME ZONE 'Pacific/Midway'")]
+    (is (= [["TimeZone" "Pacific/Midway"]] (into [] (set-time-zone))))
     (is (= [{:n 1}] (eq pg ["SELECT 1 AS n"])))))
 
 (deftest copy-data

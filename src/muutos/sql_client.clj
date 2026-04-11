@@ -293,6 +293,7 @@
   (AutoCloseable/.close pg)
   (eq pg ["SELECT $1 AS n" 1])
   (eq pg ["SELECT 1"])
+  (eq pg ["SET TIME ZONE 'Pacific/Midway'"])
   ,,,)
 
 (defmacro ^:private rf-with [rf acc x]
