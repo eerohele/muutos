@@ -33,7 +33,14 @@
     (f)))
 
 (defmacro same? [a b]
-  `(zero? (.compareTo ~a ~b)))
+  `(zero?
+     (cond
+       (instance? Long ~a) (Long/.compareTo ~a ~b)
+       (instance? Float ~a) (Float/.compareTo ~a ~b)
+       (instance? Double ~a) (Double/.compareTo ~a ~b)
+       (instance? Integer ~a) (Integer/.compareTo ~a ~b)
+       (instance? BigInteger ~a) (BigInteger/.compareTo ~a ~b)
+       (instance? BigDecimal ~a) (BigDecimal/.compareTo ~a ~b))))
 
 (defn connect-test ^AutoCloseable [& {:as opts}]
   (connect (merge {:database "test" :port 5432} opts)))
