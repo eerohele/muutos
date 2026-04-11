@@ -14,6 +14,7 @@
             [muutos.sql-client :refer [eq sq emit-message] :as sql-client]
             [muutos.subscriber :as subscriber]
             [muutos.test.concurrency :refer [concurrently]]
+            [muutos.test.disruptor :as disruptor]
             [muutos.type])
   (:import (clojure.lang ExceptionInfo)
            (java.lang AutoCloseable)
@@ -23,9 +24,7 @@
            (java.time Duration Instant)
            (java.util Arrays)
            (java.util.concurrent ArrayBlockingQueue BlockingQueue ExecutorService RejectedExecutionException SynchronousQueue TimeUnit)
-           (java.util.concurrent.locks ReentrantLock)
-           (org.netcrusher.core.reactor NioReactor)
-           (org.netcrusher.tcp TcpCrusher TcpCrusherBuilder)))
+           (java.util.concurrent.locks ReentrantLock)))
 
 (set! *warn-on-reflection* true)
 
@@ -735,7 +734,7 @@
                                           :severity "ERROR"}
               (deref subscriber)))))))
 
-(comment
+#_(comment
   (import '(org.netcrusher.core.reactor NioReactor))
   (import '(org.netcrusher.tcp TcpCrusher TcpCrusherBuilder))
 
@@ -759,22 +758,13 @@
   (clear-db! :host "localhost" :port 5434)
 
   ;; Check that dereffing the subscriber throws when disconnected from server.
-  (let [reactor (NioReactor.)
-        crusher (->
-                  (TcpCrusherBuilder/builder)
-                  (.withReactor reactor)
-                  (.withBindAddress "localhost" 10080)
-                  (.withConnectAddress "localhost" 5434)
-                  (.buildAndOpen))
+  (let [proxy (disruptor/proxy :bind-port 10080 :connect-port 5434)
         client (test-client :port 10080 :replication :database)]
     (try
       (sq client (format "CREATE_REPLICATION_SLOT %s LOGICAL pgoutput" "s"))
-      (let [subscriber (subscriber/connect "s"
-                         (test-options :port 10080 :publications #{"p"}))]
 
-        (.close crusher)
-        (.close reactor)
-
+      (let [subscriber (subscriber/connect "s" (test-options :port 10080 :publications #{"p"}))]
+        (AutoCloseable/.close proxy)
         (is (thrown-match? ExceptionInfo {::anomalies/category ::anomalies/unavailable}
               (deref subscriber))))
       (finally

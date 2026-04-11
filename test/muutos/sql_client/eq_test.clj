@@ -6,12 +6,12 @@
             [cognitect.anomalies :as-alias anomalies]
             [matcher-combinators.matchers :as matchers]
             [matcher-combinators.test]
-            [muutos.sql-client :refer [connect eq] :as sut]
+            [muutos.sql-client :refer [connect eq sq] :as sut]
             [muutos.codec.bin :as bin]
             [muutos.error :as-alias error]
             [muutos.test.array :as array]
+            [muutos.test.disruptor :as disruptor]
             #_[muutos.test.fray :as fray]
-            [muutos.test.server :as server :refer [host port]]
             [muutos.type])
   (:import (clojure.lang ExceptionInfo)
            (java.lang AutoCloseable)
@@ -22,44 +22,38 @@
 
 (set! *warn-on-reflection* true)
 
-(def container-opts
-  {:env-vars {"POSTGRES_PASSWORD" "postgres"
-              "POSTGRES_DB" "test"}
-   :exposed-ports [5432]
-   :image-name "postgres:17"})
-
-(defonce server
-  (delay
-    (server/start container-opts)))
-
 (comment (.close @server) ,,,)
+
+(defn clear-db! [& {:keys [host port]}]
+  (with-open [client (connect :host host :port port)]
+    (sq client "DROP DATABASE IF EXISTS test WITH (FORCE)")
+    (sq client "CREATE DATABASE test")))
 
 (use-fixtures :each
   (fn [f]
-    (with-open [client (connect :host (host @server) :port (port @server))]
-      (eq client ["DROP DATABASE test WITH (FORCE)"])
-      (eq client ["CREATE DATABASE test"]))
-
+    (clear-db! :host "localhost" :port 5432)
     (f)))
 
 (defmacro same? [a b]
   `(zero? (.compareTo ~a ~b)))
 
 (defn connect-test ^AutoCloseable [& {:as opts}]
-  (connect (merge {:database "test" :host (host @server) :port (port @server)} opts)))
+  (connect (merge {:database "test" :host "localhost" :port 5432} opts)))
 
 (deftest ^:integration read-error
-  (with-open [server (server/start container-opts)
-              pg (connect {:host (host server) :port (port server)})]
-    (is (= [{"?column?" 1}] (eq pg ["SELECT $1" 1])))
-    (AutoCloseable/.close server)
+  (clear-db! :host "localhost" :port 5433)
 
-    (Thread/sleep 1000)
+  (let [proxy (disruptor/proxy :bind-port 10080 :connect-port 5433)]
+    (with-open [pg (connect {:host "localhost" :port 10080})]
+      (is (= [{"?column?" 1}] (eq pg ["SELECT $1" 1])))
+      (AutoCloseable/.close proxy)
 
-    ;; FIXME: Make more specific/deterministic. This at least checks the event
-    ;; loop won't hang, though.
-    (is (thrown? Exception (eq pg ["SELECT $1" 1])))
-    (is (thrown? Exception (eq pg ["SELECT $1" 1])))))
+      (Thread/sleep 1000)
+
+      ;; FIXME: Make more specific/deterministic. This at least checks the event
+      ;; loop won't hang, though.
+      (is (thrown? Exception (eq pg ["SELECT $1" 1])))
+      (is (thrown? Exception (eq pg ["SELECT $1" 1]))))))
 
 (comment
   (def server (server/start container-opts))
@@ -699,6 +693,7 @@
 (deftest ^:integration set-parameter
   (with-open [pg (connect-test)]
     (is (= [] (eq pg ["SET search_path TO public"])))
+    ;; FIXME
     (is (= {:parameter ["TimeZone" "Europe/Helsinki"] :type :parameter}
           (eq pg ["SET TIME ZONE 'Europe/Helsinki'"])))))
 
