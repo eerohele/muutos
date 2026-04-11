@@ -5,28 +5,15 @@
             [matcher-combinators.test]
             [muutos.sql-client :refer [connect eq] :as sql]
             [muutos.error :as-alias error]
-            [muutos.test.server :as server :refer [host port]]
             [muutos.type])
   (:import (clojure.lang ExceptionInfo IReduceInit)
            (java.lang AutoCloseable)))
 
 (set! *warn-on-reflection* true)
 
-(def container-opts
-  {:env-vars {"POSTGRES_PASSWORD" "postgres"
-              "POSTGRES_DB" "test"}
-   :exposed-ports [5432]
-   :image-name "postgres:17"})
-
-(defonce server
-  (delay
-    (server/start container-opts)))
-
-(comment (.close @server) ,,,)
-
 (use-fixtures :each
   (fn [f]
-    (with-open [client (connect :host (host @server) :port (port @server))]
+    (with-open [client (connect :port 5432)]
       (eq client ["DROP DATABASE test WITH (FORCE)"])
       (eq client ["CREATE DATABASE test"]))
 
@@ -36,10 +23,7 @@
 
 (defn $ ^AutoCloseable [& {:as opts}]
   (connect
-    (merge {:database "test"
-            :key-fn key-fn
-            :host (host @server)
-            :port (port @server)} opts)))
+    (merge {:database "test" :key-fn key-fn :port 5432} opts)))
 
 (deftest infer
   (with-open [pg ($)
@@ -200,6 +184,7 @@
 (deftest parameter
   (with-open [pg ($)
               set-time-zone (sql/prepare pg "SET TIME ZONE 'Europe/Helsinki'")]
+    ;; FIXME
     (is (= [["TimeZone" "Europe/Helsinki"]] (into [] (set-time-zone))))
     (is (= [{:n 1}] (eq pg ["SELECT 1 AS n"])))))
 

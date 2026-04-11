@@ -111,3 +111,19 @@ services:
                -c max_wal_senders=4
                -c max_replication_slots=1
                -c timezone='Europe/Helsinki'
+  pg-test-trust:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+      POSTGRES_HOST_AUTH_METHOD: trust
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "5437:5437"
+    command: >
+      postgres -p 5437 -c timezone='Europe/Helsinki'
