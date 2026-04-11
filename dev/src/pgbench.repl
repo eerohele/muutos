@@ -5,49 +5,26 @@
 (set! *warn-on-reflection* true)
 
 (require '[cognitect.transcriptor :as xr])
-
-(require '[muutos.test.container :as container])
-(require '[muutos.test.server :refer [port]])
-
-(def srv-src
-  (->
-    (assoc container/default-opts :command ["postgres"
-                                            "-c" "wal_level=logical"
-                                            "-c" "wal_sender_timeout=120s"
-                                            "-c" "max_wal_senders=4"
-                                            "-c" "max_replication_slots=1"])
-    (container/create)
-    (container/start)))
-
-(xr/on-exit #(.close srv-src))
-
-(def srv-dst
-  (->
-    (assoc container/default-opts :command ["postgres"
-                                            "-c" "wal_level=logical"
-                                            "-c" "max_replication_slots=1"])
-    (container/create)
-    (container/start)))
-
-(xr/on-exit #(.close srv-dst))
-
 (require '[clojure.java.process :as process])
+
+(def src-port 5438)
+(def dst-port 5439)
 
 ;; Initialize source database.
 (process/exec {:env {"PGPASSWORD" "postgres"}}
   "pgbench"
   "--initialize"
   "--host=localhost"
-  (format "--port=%d" (port srv-src))
+  (format "--port=%d" src-port)
   "--username=postgres"
   "postgres")
 
-;; Initialize target database (5433).
+;; Initialize target database.
 (process/exec {:env {"PGPASSWORD" "postgres"}}
   "pgbench"
   "--initialize"
   "--host=localhost"
-  (format "--port=%d" (port srv-dst))
+  (format "--port=%d" dst-port)
   "--username=postgres"
   "postgres")
 
@@ -55,18 +32,34 @@
 (require '[muutos.sql-client :refer [connect eq create-slot sq]])
 
 ;; Open a connection to the source database.
-(def pg-src (connect :port (port srv-src)))
+(def pg-src (connect :port src-port))
 (xr/on-exit #(AutoCloseable/.close pg-src))
-(def pg-src-rpl (connect :port (port srv-src) :replication :database))
+(def pg-src-rpl (connect :port src-port :replication :database))
 (xr/on-exit #(AutoCloseable/.close pg-src-rpl))
 (meta pg-src)
 
+(xr/on-exit #(eq pg-src
+               ["SET CONSTRAINTS ALL DEFERRED"]
+               ["DROP TABLE IF EXISTS pgbench_accounts"]
+               ["DROP TABLE IF EXISTS pgbench_branches"]
+               ["DROP TABLE IF EXISTS pgbench_history"]
+               ["DROP TABLE IF EXISTS pgbench_tellers"]
+               ["DROP TABLE IF EXISTS pgbench_sentinel"]))
+
 ;; Open a connection to the destination database.
-(def pg-dst (connect :port (port srv-dst)))
+(def pg-dst (connect :port dst-port))
 (xr/on-exit #(AutoCloseable/.close pg-dst))
-(def pg-dst-rpl (connect :port (port srv-dst) :replication :database))
+(def pg-dst-rpl (connect :port dst-port :replication :database))
 (xr/on-exit #(AutoCloseable/.close pg-dst-rpl))
 (meta pg-dst)
+
+(xr/on-exit #(eq pg-dst
+               ["SET CONSTRAINTS ALL DEFERRED"]
+               ["DROP TABLE IF EXISTS pgbench_accounts"]
+               ["DROP TABLE IF EXISTS pgbench_branches"]
+               ["DROP TABLE IF EXISTS pgbench_history"]
+               ["DROP TABLE IF EXISTS pgbench_tellers"]
+               ["DROP TABLE IF EXISTS pgbench_sentinel"]))
 
 ;; Check database connections.
 (eq pg-src ["SELECT 1 AS a"])
@@ -253,7 +246,7 @@
 (def sub-src
   (subscriber/connect "pgbench"
     :log (partial log :src)
-    :port (port srv-src)
+    :port src-port
     :publications #{"p_src"}
     :handler (fn
                ([msg] (async/>!! in-chan {:msg msg}))
@@ -268,7 +261,7 @@
 (def sub-dst
   (subscriber/connect "pgbench"
     :log (partial log :dst)
-    :port (port srv-dst)
+    :port dst-port
     :publications #{"p_dst"}
     :handler (fn
                ([msg] (async/>!! chan msg))
@@ -309,7 +302,7 @@
     (format "--jobs=%d" (Runtime/.availableProcessors (Runtime/getRuntime)))
     "--time=30"
     "--host=localhost"
-    (format "--port=%d" (port srv-src))
+    (format "--port=%d" src-port)
     "--username=postgres"
     "postgres"))
 
