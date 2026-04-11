@@ -278,7 +278,7 @@
             (let [response (client/recv client)
                   type (response :type)]
               (case type
-                :parameter (recur (conj! data response))
+                :parameter (recur (conj! data (response :parameter)))
                 :ready-for-query (cond-> (persistent! data) (= 1 q-count) peek)
                 :error (throw (:ex response))
                 :read-error (throw (:ex response))))))))))
