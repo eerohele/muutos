@@ -80,6 +80,14 @@
             {}
             (oid-by-category (char-array [\B \Z])))))))
 
+(deftest xform-throw
+  (with-open [pg ($)
+              sum (sql/prepare pg "SELECT $1 + $1" {:oids [(int 20) (int 20)]})]
+    (is (thrown? Exception (into [] (map (fn [_] (throw (Exception. "Boom!")))) (sum 1 2))))
+
+    ;; No protocol desynchronization
+    (is (= [{:n 1}] (eq pg ["SELECT $1 AS n" 1])))))
+
 (deftest close-by-name
   (with-open [pg ($)]
     (let [sum (sql/prepare pg "SELECT $1 + $2 AS n" {:name 'sum :oids [(int 20) (int 20)]})]

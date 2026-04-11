@@ -299,7 +299,13 @@
   `(let [acc# ~acc]
      (if (reduced? acc#)
        acc#
-       (~rf acc# ~x))))
+       (try
+         (~rf acc# ~x)
+         (catch Throwable ex#
+           ex#)))))
+
+(defn ^:private ex? [x]
+  (instance? Throwable x))
 
 (defn ^:private close-statement [client stmt-name]
   (client/enqueue client {:type :close :target :statement :name stmt-name})
@@ -406,7 +412,10 @@
                              (recur attrs data ex))
 
                            :copy-data
-                           (recur attrs (rf-with rf data (response :data)) ex)
+                           (let [data-or-ex (rf-with rf data (response :data))]
+                             (if (ex? data-or-ex)
+                               (recur attrs data data-or-ex)
+                               (recur attrs data-or-ex ex)))
 
                            :copy-in
                            (do
@@ -415,21 +424,25 @@
                              (anomaly! "Not implemented: COPY ... FROM STDIN" ::anomalies/unsupported {:type type}))
 
                            (:command-complete :empty-query)
-                           (if ex
-                             (throw ex)
-                             (recur attrs data ex))
+                           (recur attrs data ex)
 
                            (:bind-complete :copy-out :copy-done :no-data)
                            (recur attrs data ex)
 
                            :parameter
-                           (let [parameter (response :parameter)]
-                             (recur attrs (rf-with rf data parameter) ex))
+                           (let [parameter (response :parameter)
+                                 data-or-ex (rf-with rf data parameter)]
+                             (if (ex? data-or-ex)
+                               (recur attrs data data-or-ex)
+                               (recur attrs data-or-ex ex)))
 
                            :data-row
                            (let [tuples (response :tuple)
-                                 data-row (data-row/parse attrs tuples {:query-fn query-fn :key-fn key-fn :format :bin})]
-                             (recur attrs (rf-with rf data data-row) ex)))))))))]
+                                 data-row (data-row/parse attrs tuples {:query-fn query-fn :key-fn key-fn :format :bin})
+                                 data-or-ex (rf-with rf data data-row)]
+                             (if (ex? data-or-ex)
+                               (recur attrs data data-or-ex)
+                               (recur attrs data-or-ex ex))))))))))]
 
          (reify
            IFn
