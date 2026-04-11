@@ -7,6 +7,7 @@
             #_[muutos.test.fray :as fray]
             [muutos.type])
   (:import (clojure.lang ExceptionInfo)
+           (java.lang AutoCloseable)
            (java.net InetAddress)
            (muutos.type LogSequenceNumber)))
 
@@ -23,7 +24,7 @@
 (defmacro same? [a b]
   `(zero? (.compareTo ~a ~b)))
 
-(defn connect-test [& {:as opts}]
+(defn connect-test ^AutoCloseable [& {:as opts}]
   (connect (merge {:database "test" :host "localhost" :port 5432} opts)))
 
 (comment
