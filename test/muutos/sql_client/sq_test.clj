@@ -15,7 +15,7 @@
 (use-fixtures :each
   (fn [f]
     (with-open [client (connect :host "localhost" :port 5432)]
-      (sq client "DROP DATABASE test WITH (FORCE)")
+      (sq client "DROP DATABASE IF EXISTS test WITH (FORCE)")
       (sq client "CREATE DATABASE test"))
 
     (f)))

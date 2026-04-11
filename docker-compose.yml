@@ -127,3 +127,41 @@ services:
       - "5437:5437"
     command: >
       postgres -p 5437 -c timezone='Europe/Helsinki'
+  pg-bench-src:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+      POSTGRES_HOST_AUTH_METHOD: trust
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "5438:5438"
+    command: >
+      postgres -p 5438 -c timezone='Europe/Helsinki'
+                       -c wal_level=logical
+                       -c wal_sender_timeout=120s
+                       -c max_wal_senders=4
+                       -c max_replication_slots=1
+  pg-bench-dst:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+      POSTGRES_HOST_AUTH_METHOD: trust
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "5439:5439"
+    command: >
+      postgres -p 5439 -c timezone='Europe/Helsinki'
+                       -c wal_level=logical
+                       -c max_replication_slots=1
