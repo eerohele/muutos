@@ -5,7 +5,6 @@
             [muutos.error :as-alias error]
             [muutos.sql-client :refer [connect eq sq] :as sut]
             #_[muutos.test.fray :as fray]
-            [muutos.test.server :as server :refer [host port]]
             [muutos.type])
   (:import (clojure.lang ExceptionInfo)
            (java.net InetAddress)
@@ -13,21 +12,10 @@
 
 (set! *warn-on-reflection* true)
 
-(def container-opts
-  {:env-vars {"POSTGRES_PASSWORD" "postgres"
-              "POSTGRES_DB" "test"}
-   :exposed-ports [5432]
-   :image-name "postgres:17"})
-
-(defonce server
-  (delay (server/start container-opts)))
-
-(comment (.close @server) ,,,)
-
 (use-fixtures :each
   (fn [f]
-    (with-open [client (connect :host (host @server) :port (port @server))]
-      (sq client "DROP DATABASE test WITH (FORCE)")
+    (with-open [client (connect :port 5432)]
+      (sq client "DROP DATABASE IF EXISTS test WITH (FORCE)")
       (sq client "CREATE DATABASE test"))
 
     (f)))
@@ -36,7 +24,7 @@
   `(zero? (.compareTo ~a ~b)))
 
 (defn connect-test [& {:as opts}]
-  (connect (merge {:database "test" :host (host @server) :port (port @server)} opts)))
+  (connect (merge {:database "test" :port 5432} opts)))
 
 (comment
   (with-open [pg (connect-test)]
@@ -194,7 +182,7 @@
           (sq pg "SELECT '2025-01-01 15:30:45'::timestamp"))
       "timestamp")
 
-    (is (= [{"timestamptz" #time/offset-date-time "2004-10-19T08:23:54Z"}]
+    (is (= [{"timestamptz" #time/offset-date-time "2004-10-19T11:23:54+03:00"}]
           (sq pg "SELECT '2004-10-19 10:23:54+02'::timestamptz"))
       "timestamptz")
 
