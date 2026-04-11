@@ -699,8 +699,8 @@
 (deftest ^:integration set-parameter
   (with-open [pg (connect-test)]
     (is (= [] (eq pg ["SET search_path TO public"])))
-    (is (= {:parameter ["TimeZone" "Europe/Helsinki"] :type :parameter}
-          (eq pg ["SET TIME ZONE 'Europe/Helsinki'"])))))
+    (is (= ["TimeZone" "Pacific/Midway"]
+          (eq pg ["SET TIME ZONE 'Pacific/Midway'"])))))
 
 (deftest ^:integration system-catalogs
   (with-open [pg (connect-test)]
