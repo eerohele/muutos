@@ -14,7 +14,7 @@
 (use-fixtures :each
   (fn [f]
     (with-open [client (connect :port 5432)]
-      (eq client ["DROP DATABASE test WITH (FORCE)"])
+      (eq client ["DROP DATABASE IF EXISTS test WITH (FORCE)"])
       (eq client ["CREATE DATABASE test"]))
 
     (f)))
