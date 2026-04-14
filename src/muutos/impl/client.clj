@@ -50,6 +50,13 @@
           ((or notify-fn log prn) response)
           (recur state))
 
+        :auth/clear-text-password
+        (do
+          (connection/write connection {:type :password-message
+                                        :password password})
+          (connection/flush connection)
+          (recur state))
+
         :auth/sasl
         (let [client-nonce (sasl/nonce)
               mechanism (response :mechanism)

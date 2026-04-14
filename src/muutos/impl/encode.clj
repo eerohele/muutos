@@ -34,6 +34,16 @@
         (put bb)
         (flip)))))
 
+(defmethod encode :password-message
+  [{:keys [^String password]}]
+  (let [len (String/.length password)]
+    (.. (ByteBuffer/allocate (+ 1 4 len 1))
+      (put (byte 112))
+      (putInt (+ 4 len 1))
+      (put (charset/bytes password))
+      (put (byte 0))
+      (flip))))
+
 (defmethod encode :sasl-initial-response
   [{:keys [user ^String mechanism nonce channel-binding]}]
   (let [client-first-message (if channel-binding

@@ -316,7 +316,7 @@
                11 :auth/sasl-continue
                12 :auth/sasl-final)]
     ;; TODO
-    (if (#{:auth/krbv5 :auth/clear-text-password :auth/md5-password :auth/gssapi :auth/gss-continue :auth/sspi} type)
+    (if (#{:auth/krbv5 :auth/md5-password :auth/gssapi :auth/gss-continue :auth/sspi} type)
       (anomaly! "Not implemented" ::anomalies/unsupported {:type type})
       (cond-> {:type type}
         (= :auth/sasl type)
