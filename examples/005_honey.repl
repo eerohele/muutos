@@ -1,0 +1,52 @@
+(require '[muutos.sql-client :as sql])
+(require '[honey.sql :as honey])
+
+;; Connect to the PostgreSQL instance listening on localhost:5432.
+(def pg
+  (sql/connect :key-fn (fn [_ attr-name] (keyword attr-name))))
+
+(defn q
+  "Given a HoneySQL query map, return a latent query that uses the SQL query
+  generated from the query map."
+  [qmap]
+  (sql/lq (peek (honey/format qmap {:inline true :numbered true}))))
+
+(def films-by-ids
+  "Given SQL client and an int array of film IDs, return a reducible of the
+  films that the IDs identify."
+  ;; The benefit of using HoneySQL with latent queries is that the query map
+  ;; only needs to be converted into an SQL string once, when creating the
+  ;; latent query.
+  ;;
+  ;; All executions of the latent query use the already-parsed string.
+  (q {:select [:release-year
+               :length
+               [[:trim :language/name] :language]
+               :title
+               :rating
+               :description
+               :rental-rate
+               :replacement-cost]
+      :from [:film]
+      :join [:language [:= :language/language-id :film/language-id]]
+      :where [:= :film/film-id [:any [:raw "$1"]]]
+      :order-by [[:release_year :asc]]}))
+
+;; Bring in ICU4J for the all-important task of title-casing strings.
+;;
+;; (This is just for demonstration, I'm aware of initcap().)
+(require '[clojure.repl.deps :as deps])
+(deps/add-libs '{com.ibm.icu/icu4j {:mvn/version "78.3"}})
+
+(import '(com.ibm.icu.lang UCharacter))
+(import '(com.ibm.icu.text BreakIterator))
+
+(defn title-case
+  "Given a string, return a title-cased version of that string."
+  [s]
+  (UCharacter/toTitleCase s (BreakIterator/getTitleInstance)))
+
+;; Get films 1, 2, and 3, with titles title-cased (on the client side
+(into []
+  (map (fn [film] (update film :title title-case)))
+  (films-by-ids pg (int-array [1 2 3])))
