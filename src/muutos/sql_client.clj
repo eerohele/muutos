@@ -302,7 +302,9 @@
   (instance? Throwable x))
 
 (defn lq
-  "Latent query. EXPERIMENTAL.
+  "EXPERIMENTAL.
+
+  Latent query.
 
   Given a statement (string), return a clojure.lang.IFn that, given a client and
   parameters, returns a reducible of query results.
@@ -610,7 +612,9 @@
   (sq client "ROLLBACK"))
 
 (defmacro transact
-  "Given a client, an optional options map (which must be a compile-time
+  "EXPERIMENTAL.
+
+  Given a client, an optional options map (which must be a compile-time
   literal), and a body, execute the body inside a transaction.
 
   If the body throws, roll back the transaction, else commit.
