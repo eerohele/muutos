@@ -4,13 +4,15 @@
 (set! *warn-on-reflection* true)
 
 (defmacro concurrently
-  [{:keys [threads]
-    :or {threads 1000}} & body]
-  `(with-open [executor# (Executors/newVirtualThreadPerTaskExecutor)]
-     (let [latch# (CountDownLatch. ~threads)]
-       (dotimes [_i# ~threads]
-         (.execute executor#
-           (^:once fn* []
-            (.countDown latch#)
-            (.await latch#)
-            (do ~@body)))))))
+  [& body]
+  (let [[{:keys [threads]} body] (if (map? (first body))
+                                   [(first body) (rest body)]
+                                   [{:threads 1000} body])]
+    `(with-open [executor# (Executors/newVirtualThreadPerTaskExecutor)]
+       (let [latch# (CountDownLatch. ~threads)]
+         (dotimes [_i# ~threads]
+           (.execute executor#
+             (^:once fn* []
+              (.countDown latch#)
+              (.await latch#)
+              (do ~@body))))))))
