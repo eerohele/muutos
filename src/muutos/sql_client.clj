@@ -10,11 +10,14 @@
             [muutos.impl.client :as client]
             [muutos.impl.connection :as connection]
             [muutos.impl.data-row :as data-row]
+            [muutos.impl.error :refer [handle!]]
             [muutos.impl.hook :as hook]
             [muutos.impl.lockable :refer [Lockable with-lock]]
-            [muutos.impl.type :as type])
+            [muutos.impl.type :as type]
+            [muutos.impl.statement :as stmt])
   (:import (clojure.lang IFn IReduceInit)
            (java.lang AutoCloseable)
+           (java.util.concurrent ConcurrentHashMap)
            (java.util.concurrent.locks ReentrantLock)))
 
 (set! *warn-on-reflection* true)
@@ -119,10 +122,12 @@
         -lock (ReentrantLock.)
         connection (connection/open options)
         session (client/start-session connection options)
+        client-id (random-uuid)
 
         client
         (reify
           client/Client
+          (id [_] client-id)
 
           (options [_] options)
 
@@ -158,13 +163,6 @@
     (hook/on-shutdown (AutoCloseable/.close client))
 
     (with-meta client (assoc session :options (select-keys options [:key-fn])))))
-
-(defn ^:private handle-error! [client ex]
-  (if (= ::error/server-error (-> ex ex-data :kind))
-    (throw ex)
-    (do
-      (AutoCloseable/.close client)
-      (anomaly! "Fatal error when reading server response; closing client to prevent protocol desynchronization" ::anomalies/fault (ex-data ex) ex))))
 
 (def ^:private unnamed-statement "")
 (def ^:private unnamed-portal "")
@@ -272,7 +270,7 @@
                                 (catch Throwable ex
                                   ;; If the event loop throws e.g. an OutOfMemoryError, let it crash to
                                   ;; prevent the event loop from getting out of sync.
-                                  (handle-error! client ex)))]
+                                  (handle! client ex)))]
                     (recur (inc i) (conj! data datum)))))]
           ;; If everything went well, we'll receive :ready-for-query only after
           ;; reading until :command-complete for every input query.
@@ -303,205 +301,172 @@
 (defn ^:private ex? [x]
   (instance? Throwable x))
 
-(defn ^:private close-statement [client stmt-name]
-  (client/enqueue client {:type :close :target :statement :name stmt-name})
-  (client/enqueue client {:type :sync})
-  (client/flush client)
+(defn lq
+  "Latent query. EXPERIMENTAL.
 
-  (loop [ex nil]
-    (let [{:keys [type] :as response} (client/recv client)]
-      (case type
-        :ready-for-query
-        (when ex (throw ex))
+  Given a statement (string), return a clojure.lang.IFn that, given a client and
+  parameters, returns a reducible of query results.
 
-        :error
-        (recur (:ex response))
+  Use when you need to repeatedly execute the same query with different
+  parameters as efficiently as possible (e.g. when handling  web app HTTP
+  requests).
 
-        ;; Might get one of these when closing the statement before
-        ;; executing it.
-        (:command-complete :parameter-description :row-description :bind-complete :data-row)
-        (recur ex)
+  Does not interact with the PostgreSQL until the first reduction. Only then
+  parses the query string once and caches the result for repeated execution.
 
-        :close-complete
-        (recur ex)))))
+  If the cached plan changes (e.g. because an ALTER TABLE modifies a table the
+  statement uses), Muutos automatically recreates the statement, then retries. If
+  the statement becomes invalid such that it can no longer be executed (e.g. a
+  table the statement queries is deleted), throws an exception.
 
-(defn ^:private execute [client stmt-name parameters]
-  (let [encoded-parameters (mapv bin/encode parameters)]
-    (client/enqueue client {:type :bind :statement stmt-name :portal unnamed-portal :parameters encoded-parameters})
-    (client/enqueue client {:type :execute :portal unnamed-portal :max-rows 0})
-    (client/enqueue client {:type :sync})
-    (client/flush client)))
+  Options:
 
-(defprotocol ^:private PreparedStatement
-  (^:private attributes [this]))
+    - `:oids` (vector of ints)
 
-(defn prepare
-  (^AutoCloseable [client q]
-   (prepare client q {}))
-  (^AutoCloseable [client q {:keys [name oids]}]
-   (let [stmt-name (or (some-> name core/name) (str "ms_" (random-uuid)))
-         {:keys [key-fn]} (client/options client)
-         query-fn (fn [qvec] (eq (client/aux client) qvec))]
-     (with-lock client
-       (client/enqueue client {:type :parse :statement stmt-name :query q :oids oids})
-       (client/enqueue client {:type :describe :target :statement :name stmt-name})
-       (client/enqueue client {:type :sync})
-       (client/flush client)
+      A vector of PostgreSQL data type OIDs that specify the type of each
+      parameter. The first element specifies the type of $1, the second $2, and
+      so on.
 
-       (let [attrs (loop [data []
-                          attrs {}
-                          ex nil]
-                     (let [{:keys [type] :as response} (client/recv client)]
-                       (case type
-                         :ready-for-query
-                         (if ex
-                           (handle-error! client ex)
-                           attrs)
+      Required when PostgreSQL cannot infer parameter types from the query. For
+      example, given the query string `SELECT $1 + $2`, PostgreSQL does not
+      know whether you want to sum int4s, int8s, float4s, or something else.
 
-                         :row-description
-                         (recur data (response :attrs) ex)
+      See also `muutos.sql-client/oid` and `muutos.sql-client/array-oid`."
+  ([stmt] (lq stmt {}))
+  ([stmt {:keys [oids] :as opts}]
+   (let [stmt-name (or (some-> (opts :name) core/name) (str "ms_" (random-uuid)))
+         attrs (ConcurrentHashMap.)
+         execute (fn [client parameters]
+                   (reify
+                     IReduceInit
+                     (reduce [_ rf init]
+                       (let [client-id (client/id client)]
+                         (with-lock client
+                           ;; This approach probably allocates unnecessarily much, but since attrs
+                           ;; is structurally shared, I wonder whether it actually matters all that
+                           ;; much.
+                           (ConcurrentHashMap/.computeIfAbsent attrs client-id
+                             (fn [_] (stmt/parse client stmt-name stmt oids)))
 
-                         (:parameter-description :no-data :parse-complete)
-                         (recur data attrs ex)
+                           (stmt/execute client stmt-name parameters)
 
-                         :error
-                         (recur data attrs (response :ex)))))
+                           (let [{:keys [key-fn]} (client/options client)
+                                 query-fn (fn [qvec] (eq (client/aux client) qvec))]
+                             (loop [attrs (ConcurrentHashMap/.get attrs client-id)
+                                    data init
+                                    ex nil]
+                               (let [{:keys [type] :as response} (client/recv client)]
 
-             execute
-             (fn [parameters]
-               (reify
-                 ;; FIXME: Add Seqable
-                 IReduceInit
-                 (reduce [_ rf init]
-                   (with-lock client
-                     (execute client stmt-name parameters)
+                                 (case type
+                                   :ready-for-query
+                                   (cond
+                                     ;; If PostgreSQL returns an error that indicates that the cached plan
+                                     ;; has changed (e.g. because someone has executed ALTER TABLE on a
+                                     ;; table the prepared statement uses), re-prepare the statement, then
+                                     ;; retry.
+                                     (-> ex ex-data :error-code (= "0A000"))
+                                     (do
+                                       (stmt/close client stmt-name)
+                                       (let [attrs (stmt/parse client stmt-name stmt oids)]
+                                         (stmt/execute client stmt-name parameters)
+                                         (recur attrs data nil)))
 
-                     (loop [attrs attrs
-                            data init
-                            ex nil]
-                       (let [{:keys [type] :as response} (client/recv client)]
-                         (case type
-                           :ready-for-query
-                           (cond
-                             ;; If PostgreSQL returns an error that indicates that the cached plan
-                             ;; has changed (e.g. because someone has executed ALTER TABLE on a
-                             ;; table the prepared statement uses), re-prepare the statement, then
-                             ;; retry.
-                             (-> ex ex-data :error-code (= "0A000"))
-                             (do
-                               (close-statement client stmt-name)
-                               (let [stmt (prepare client q {:name stmt-name :oids oids})]
-                                 (execute client stmt-name parameters)
-                                 (recur (attributes stmt) data nil)))
+                                     ex (throw ex)
 
-                             ex (throw ex)
+                                     :else (unreduced data))
 
-                             :else (unreduced data))
+                                   :error
+                                   (recur attrs data (:ex response))
 
-                           :error
-                           (recur attrs data (:ex response))
+                                   :notice
+                                   (do
+                                     (client/log client :info ::server-notice {:notice response})
+                                     (recur attrs data ex))
 
-                           :notice
-                           (do
-                             (client/log client :info ::server-notice {:notice response})
-                             (recur attrs data ex))
+                                   :copy-data
+                                   (let [data-or-ex (rf-with rf data (response :data))]
+                                     (if (ex? data-or-ex)
+                                       (recur attrs data data-or-ex)
+                                       (recur attrs data-or-ex ex)))
 
-                           :copy-data
-                           (let [data-or-ex (rf-with rf data (response :data))]
-                             (if (ex? data-or-ex)
-                               (recur attrs data data-or-ex)
-                               (recur attrs data-or-ex ex)))
+                                   :copy-in
+                                   (do
+                                     (client/enqueue client {:type :copy-done})
+                                     (client/flush client)
+                                     (anomaly! "Not implemented: COPY ... FROM STDIN" ::anomalies/unsupported {:type type}))
 
-                           :copy-in
-                           (do
-                             (client/enqueue client {:type :copy-done})
-                             (client/flush client)
-                             (anomaly! "Not implemented: COPY ... FROM STDIN" ::anomalies/unsupported {:type type}))
+                                   (:command-complete :empty-query)
+                                   (recur attrs data ex)
 
-                           (:command-complete :empty-query)
-                           (recur attrs data ex)
+                                   (:bind-complete :copy-out :copy-done :no-data)
+                                   (recur attrs data ex)
 
-                           (:bind-complete :copy-out :copy-done :no-data)
-                           (recur attrs data ex)
+                                   :parameter
+                                   (let [parameter (response :parameter)
+                                         data-or-ex (rf-with rf data parameter)]
+                                     (if (ex? data-or-ex)
+                                       (recur attrs data data-or-ex)
+                                       (recur attrs data-or-ex ex)))
 
-                           :parameter
-                           (let [parameter (response :parameter)
-                                 data-or-ex (rf-with rf data parameter)]
-                             (if (ex? data-or-ex)
-                               (recur attrs data data-or-ex)
-                               (recur attrs data-or-ex ex)))
+                                   :data-row
+                                   (let [tuples (response :tuple)
+                                         data-row (data-row/parse attrs tuples {:query-fn query-fn :key-fn key-fn :format :bin})
+                                         data-or-ex (rf-with rf data data-row)]
+                                     (if (ex? data-or-ex)
+                                       (recur attrs data data-or-ex)
+                                       (recur attrs data-or-ex ex))))))))))))]
 
-                           :data-row
-                           (let [tuples (response :tuple)
-                                 data-row (data-row/parse attrs tuples {:query-fn query-fn :key-fn key-fn :format :bin})
-                                 data-or-ex (rf-with rf data data-row)]
-                             (if (ex? data-or-ex)
-                               (recur attrs data data-or-ex)
-                               (recur attrs data-or-ex ex))))))))))]
-
-         (reify
-           IFn
-           (invoke [_]
-             (execute []))
-           (invoke [_ a1]
-             (execute [a1]))
-           (invoke [_ a1 a2]
-             (execute [a1 a2]))
-           (invoke [_ a1 a2 a3]
-             (execute [a1 a2 a3]))
-           (invoke [_ a1 a2 a3 a4]
-             (execute [a1 a2 a3 a4]))
-           (invoke [_ a1 a2 a3 a4 a5]
-             (execute [a1 a2 a3 a4 a5]))
-           (invoke [_ a1 a2 a3 a4 a5 a6]
-             (execute [a1 a2 a3 a4 a5 a6]))
-           (invoke [_ a1 a2 a3 a4 a5 a6 a7]
-             (execute [a1 a2 a3 a4 a5 a6 a7]))
-           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8]
-             (execute [a1 a2 a3 a4 a5 a6 a7 a8]))
-           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9]
-             (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9]))
-           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10]
-             (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10]))
-           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11]
-             (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11]))
-           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12]
-             (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12]))
-           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13]
-             (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13]))
-           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14]
-             (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14]))
-           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15]
-             (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15]))
-           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16]
-             (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16]))
-           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17]
-             (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17]))
-           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18]
-             (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18]))
-           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18 a19]
-             (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18 a19]))
-           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18 a19 a20]
-             (execute [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18 a19 a20]))
-           ;; FIXME: Is this correct?
-           (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18 a19 a20 args]
-             (execute (into [a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18 a19 a20] args)))
-
-           (applyTo [_ arglist]
-             (execute arglist))
-
-           PreparedStatement
-           (attributes [_] attrs)
-
-           AutoCloseable
-           (close [_]
-             (with-lock client
-               (close-statement client stmt-name)))))))))
+     (reify
+       IFn
+       (invoke [_ a1]
+         (execute a1 []))
+       (invoke [_ a1 a2]
+         (execute a1 [a2]))
+       (invoke [_ a1 a2 a3]
+         (execute a1 [a2 a3]))
+       (invoke [_ a1 a2 a3 a4]
+         (execute a1 [a2 a3 a4]))
+       (invoke [_ a1 a2 a3 a4 a5]
+         (execute a1 [a2 a3 a4 a5]))
+       (invoke [_ a1 a2 a3 a4 a5 a6]
+         (execute a1 [a2 a3 a4 a5 a6]))
+       (invoke [_ a1 a2 a3 a4 a5 a6 a7]
+         (execute a1 [a2 a3 a4 a5 a6 a7]))
+       (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8]
+         (execute a1 [a2 a3 a4 a5 a6 a7 a8]))
+       (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9]
+         (execute a1 [a2 a3 a4 a5 a6 a7 a8 a9]))
+       (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10]
+         (execute a1 [a2 a3 a4 a5 a6 a7 a8 a9 a10]))
+       (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11]
+         (execute a1 [a2 a3 a4 a5 a6 a7 a8 a9 a10 a11]))
+       (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12]
+         (execute a1 [a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12]))
+       (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13]
+         (execute a1 [a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13]))
+       (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14]
+         (execute a1 [a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14]))
+       (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15]
+         (execute a1 [a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15]))
+       (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16]
+         (execute a1 [a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16]))
+       (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17]
+         (execute a1 [a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17]))
+       (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18]
+         (execute a1 [a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18]))
+       (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18 a19]
+         (execute a1 [a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18 a19]))
+       (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18 a19 a20]
+         (execute a1 [a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18 a19 a20]))
+       (invoke [_ a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18 a19 a20 args]
+         (execute a1 (into [a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18 a19 a20] args)))
+       (applyTo [_ arglist]
+         (execute (first arglist) (rest arglist)))))))
 
 (comment
-  (with-open [pg (connect)
-              sum (prepare pg "SELECT $1 + $2 AS n" {:oids [(int 20) (int 20)]})]
-    (into [] (sum 1 2)))
+  (with-open [pg (connect)]
+    (let [sum (lq "SELECT $1 + $2 AS n" {:oids [(oid :int8) (oid :int8)]})]
+      (into [] (sum pg 1 2))))
   ,,,)
 
 #_{:clj-kondo/ignore [:unused-binding]}
@@ -582,7 +547,7 @@
          (catch Throwable ex
            ;; If the event loop throws e.g. an OutOfMemoryError, let it crash to
            ;; prevent the event loop from getting out of sync.
-           (handle-error! client ex)))))))
+           (handle! client ex)))))))
 
 (comment
   (def pg (connect))

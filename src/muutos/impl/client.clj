@@ -14,6 +14,7 @@
 (set! *warn-on-reflection* true)
 
 (defprotocol Client
+  (id [this])
   (options [this])
   (log [this level event-name data])
   (connection [this])

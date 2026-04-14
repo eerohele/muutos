@@ -311,12 +311,41 @@
 (bench/quick-bench
   (assert (= films (jdbc/execute! jdbc-conn-cache [(->jdbc q-film-by-id) 1] {:builder-fn opt/as-unqualified-lower-maps}))))
 
-(def film-by-id (sql/prepare pg q-film-by-id {:name 'film-by-id}))
+(def film-by-id (sql/lq q-film-by-id {:name 'film-by-id}))
 
 (println)
 (println "muutos prepare")
 (bench/quick-bench
-  (assert (= films (into [] (film-by-id (int 1))))))
+  (assert (= films (into [] (film-by-id pg (int 1))))))
+
+(println)
+(println "muutos prepare & pool (with contention")
+(->
+  (concurrently {:threads 1000}
+    (pool/with-object pool
+      (fn [pg]
+        (assert (= films (into [] (film-by-id pg (int 1))))))))
+  (bench/quick-bench)
+  (allocated-bytes))
+
+(def jdbc-pool-cache
+  (connection/->pool HikariDataSource
+    {:dbtype "postgres"
+     :dbname "postgres"
+     :username "postgres"
+     :password "postgres"
+     :minimumIdle 10
+     :maximumPoolSize 10
+     :dataSourceProperties {:prepareThreshold 5}}))
+
+(println)
+(println "next.jdbc & cache (with contention")
+(->
+  (concurrently {:threads 1000}
+    (assert (= films
+              (jdbc/execute! jdbc-pool-cache [(->jdbc q-film-by-id) 1] {:builder-fn opt/as-unqualified-lower-maps}))))
+  (bench/quick-bench)
+  (allocated-bytes))
 
 (println)
 (println "muutos eq for comparison")
@@ -342,12 +371,12 @@
   (jdbc/execute! jdbc-conn-cache [(->jdbc q-films-by-ids) (int-array [1 2 3 4 5 6 7 8 9 10])]
     {:builder-fn opt/as-unqualified-lower-maps}))
 
-(def films-by-ids (sql/prepare pg q-films-by-ids {:name 'films-by-ids}))
+(def films-by-ids (sql/lq q-films-by-ids {:name 'films-by-ids}))
 
 (println)
 (println "muutos prepare")
 (bench/quick-bench
-  (into [] (films-by-ids (int-array [1 2 3 4 5 6 7 8 9 10]))))
+  (into [] (films-by-ids pg (int-array [1 2 3 4 5 6 7 8 9 10]))))
 
 (println)
 (println "muutos eq for comparison")
