@@ -7,13 +7,20 @@
 -  [`muutos.codec.txt`](#muutos.codec.txt)  - Turn string representations of Postgres data types into Java data types.
     -  [`decode`](#muutos.codec.txt/decode) - Given a PostgreSQL data type OID (<code>int</code>) and a string representing that data type, parse the string into a Java data type.
 -  [`muutos.sql-client`](#muutos.sql-client)  - SQL client.
+    -  [`array-oid`](#muutos.sql-client/array-oid) - A map of PostgreSQL array data type name (keyword) to data type OID (int4).
+    -  [`begin`](#muutos.sql-client/begin) - Given a client and options, begin a transaction.
+    -  [`commit`](#muutos.sql-client/commit) - Given a client, commit the current transaction.
     -  [`connect`](#muutos.sql-client/connect) - Connect to a PostgreSQL database.
     -  [`create-slot`](#muutos.sql-client/create-slot) - Given a client and a slot name (string), create a (pgoutput) logical replication slot with the given name.
     -  [`drop-slot`](#muutos.sql-client/drop-slot) - Given a client and a slot name (string), drop the named logical replication slot.
     -  [`emit-message`](#muutos.sql-client/emit-message) - Given a SQL client, a prefix (string), content (string or bytes), and options, emit a [logical replication message](https://www.postgresql.org/docs/current/functions-admin.html#PG-LOGICAL-EMIT-MESSAGE).
     -  [`eq`](#muutos.sql-client/eq) - Given a client and any number of query vectors, run an extended query.
     -  [`ignoring-dupes`](#muutos.sql-client/ignoring-dupes) - Execute body.
+    -  [`lq`](#muutos.sql-client/lq) - EXPERIMENTAL.
+    -  [`oid`](#muutos.sql-client/oid) - A map of PostgreSQL data type name (keyword) to data type OID (int4).
+    -  [`rollback`](#muutos.sql-client/rollback) - Given a client, roll back the current transaction.
     -  [`sq`](#muutos.sql-client/sq) - Given a client and a query string, run a simple query.
+    -  [`transact`](#muutos.sql-client/transact) - EXPERIMENTAL.
 -  [`muutos.subscriber`](#muutos.subscriber)  - Subscribe to a PostgreSQL logical replication stream.
     -  [`connect`](#muutos.subscriber/connect) - Given the name of a logical replication slot (ident or string) and options, subscribe to a PostgreSQL logical replication stream.
     -  [`flow-controlling-executor`](#muutos.subscriber/flow-controlling-executor) - Return a single-thread <code>java.util.concurrent.ExecutorService</code> that runs off a non-fair, bounded queue and exerts backpressure when saturated.
@@ -98,6 +105,45 @@ SQL client.
 
 
 
+
+## <a name="muutos.sql-client/array-oid">`array-oid`</a>
+
+
+
+
+A map of PostgreSQL array data type name (keyword) to data type OID (int4).
+<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L804-L871">Source</a></sub></p>
+
+## <a name="muutos.sql-client/begin">`begin`</a>
+``` clojure
+(begin client & {:keys [isolation-level access-mode deferrable-mode]})
+```
+Function.
+
+Given a client and options, begin a transaction.
+
+  Options:
+
+    - `:isolation-level` (one of `#{:serializable :repeatable-read :read-committed :read-uncommitted}`)
+    - `:access-mode` (one of `#{:read-only :read-write}`)
+    - `:deferrable-mode` (one of `#{:deferrable :not-deferrable}`)
+
+  If you don't pass a value for an option, Muutos leaves the option unset and
+  defers the choice to PostgreSQL.
+
+  For more information about the options, see:
+
+  https://www.postgresql.org/docs/current/sql-set-transaction.html
+<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L571-L602">Source</a></sub></p>
+
+## <a name="muutos.sql-client/commit">`commit`</a>
+``` clojure
+(commit client)
+```
+Function.
+
+Given a client, commit the current transaction.
+<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L604-L607">Source</a></sub></p>
 
 ## <a name="muutos.sql-client/connect">`connect`</a>
 ``` clojure
@@ -186,7 +232,7 @@ Connect to a PostgreSQL database.
   - `:connect-timeout` (`java.time.Duration`, default: PT0S)
 
     TCP connection timeout value. A zero duration means infinite timeout.
-<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L27-L158">Source</a></sub></p>
+<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L32-L165">Source</a></sub></p>
 
 ## <a name="muutos.sql-client/create-slot">`create-slot`</a>
 ``` clojure
@@ -203,7 +249,7 @@ Given a client and a slot name (string), create a (pgoutput) logical
 
     If true, do not persist the slot to disk and release it when the current
     session ends.
-<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L405-L416">Source</a></sub></p>
+<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L688-L699">Source</a></sub></p>
 
 ## <a name="muutos.sql-client/drop-slot">`drop-slot`</a>
 ``` clojure
@@ -213,7 +259,7 @@ Function.
 
 Given a client and a slot name (string), drop the named logical replication
   slot.
-<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L421-L425">Source</a></sub></p>
+<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L704-L708">Source</a></sub></p>
 
 ## <a name="muutos.sql-client/emit-message">`emit-message`</a>
 ``` clojure
@@ -239,7 +285,7 @@ Given a SQL client, a prefix (string), content (string or bytes), and
      Iff true, immediately flush the message into the write-ahead log.
 
      Has no effect if `:transactional?` is `true`.
-<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L430-L450">Source</a></sub></p>
+<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L713-L733">Source</a></sub></p>
 
 ## <a name="muutos.sql-client/eq">`eq`</a>
 ``` clojure
@@ -250,7 +296,7 @@ Function.
 Given a client and any number of query vectors, run an extended query.
 
   To run a [pipeline](https://www.postgresql.org/docs/current/protocol-flow.html#PROTOCOL-FLOW-PIPELINING) of queries, pass more than one query vector.
-<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L163-L281">Source</a></sub></p>
+<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L170-L284">Source</a></sub></p>
 
 ## <a name="muutos.sql-client/ignoring-dupes">`ignoring-dupes`</a>
 ``` clojure
@@ -262,7 +308,65 @@ Execute body.
 
   If the body throws a `clojure.lang.ExceptionInfo` that indicates a PostgreSQL
   duplicate object, ignore the exception.
-<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L390-L400">Source</a></sub></p>
+<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L673-L683">Source</a></sub></p>
+
+## <a name="muutos.sql-client/lq">`lq`</a>
+``` clojure
+(lq stmt)
+(lq stmt {:keys [oids], :as opts})
+```
+Function.
+
+EXPERIMENTAL.
+
+  Latent query.
+
+  Given a statement (string), return a clojure.lang.IFn that, given a client and
+  parameters, returns a reducible of query results.
+
+  Use when you need to repeatedly execute the same query with different
+  parameters as efficiently as possible (e.g. when handling  web app HTTP
+  requests).
+
+  Does not interact with the PostgreSQL until the first reduction. Only then
+  parses the query string once and caches the result for repeated execution.
+
+  If the cached plan changes (e.g. because an ALTER TABLE modifies a table the
+  statement uses), Muutos automatically recreates the statement, then retries. If
+  the statement becomes invalid such that it can no longer be executed (e.g. a
+  table the statement queries is deleted), throws an exception.
+
+  Options:
+
+    - `:oids` (vector of ints)
+
+      A vector of PostgreSQL data type OIDs that specify the type of each
+      parameter. The first element specifies the type of $1, the second $2, and
+      so on.
+
+      Required when PostgreSQL cannot infer parameter types from the query. For
+      example, given the query string `SELECT $1 + $2`, PostgreSQL does not
+      know whether you want to sum int4s, int8s, float4s, or something else.
+
+      See also [`muutos.sql-client/oid`](#muutos.sql-client/oid) and [`muutos.sql-client/array-oid`](#muutos.sql-client/array-oid).
+<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L304-L466">Source</a></sub></p>
+
+## <a name="muutos.sql-client/oid">`oid`</a>
+
+
+
+
+A map of PostgreSQL data type name (keyword) to data type OID (int4).
+<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L735-L802">Source</a></sub></p>
+
+## <a name="muutos.sql-client/rollback">`rollback`</a>
+``` clojure
+(rollback client)
+```
+Function.
+
+Given a client, roll back the current transaction.
+<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L609-L612">Source</a></sub></p>
 
 ## <a name="muutos.sql-client/sq">`sq`</a>
 ``` clojure
@@ -275,7 +379,26 @@ Given a client and a query string, run a simple query.
 
   Simple queries do not support parameter placeholders. They can only be used
   with trusted inputs.
-<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L290-L371">Source</a></sub></p>
+<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L475-L552">Source</a></sub></p>
+
+## <a name="muutos.sql-client/transact">`transact`</a>
+``` clojure
+(transact client & body)
+```
+Macro.
+
+EXPERIMENTAL.
+
+  Given a client, an optional options map (which must be a compile-time
+  literal), and a body, execute the body inside a transaction.
+
+  If the body throws, roll back the transaction, else commit.
+
+  See [`muutos.sql-client/begin`](#muutos.sql-client/begin) for options.
+
+  See https://www.postgresql.org/docs/current/sql-set-transaction.html for more
+  information on the options.
+<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L614-L638">Source</a></sub></p>
 
 -----
 # <a name="muutos.subscriber">muutos.subscriber</a>
