@@ -637,39 +637,6 @@
            (rollback client#)
            (throw ex#))))))
 
-(comment
-  (def pg (connect))
-  (.close pg)
-
-  (sq pg "DROP TABLE IF EXISTS t")
-
-  (transact pg
-    (sq pg "CREATE TABLE t (a int)")
-    (sq pg "INSERT INTO t VALUES (1)")
-    (throw (Exception. "Boom!")))
-
-  (transact pg {:isolation-level :serializable
-                :deferrable-mode :deferrable}
-    (sq pg "CREATE TABLE t (a int)")
-    (sq pg "INSERT INTO t VALUES (1)")
-    (throw (Exception. "Boom!")))
-
-  (eq pg ["SELECT * FROM t"])
-
-  (def put-t (prepare pg "INSERT INTO t VALUES ($1)"))
-  (def ts-by-a (prepare pg "SELECT * FROM t WHERE a = $1"))
-
-  (transact pg
-    (into [] (put-t (int 1)))
-    (into [] (ts-by-a (int 1)))
-    #_(throw (Exception. "Boom!")))
-
-  (transact pg
-    (eq pg ["CREATE TABLE t (a int)"])
-    (eq pg ["INSERT INTO t VALUES ($1)" 1])
-    (eq pg ["SELECT * FROM t WHERE a = $1" 1]))
-  ,,,)
-
 (defmacro ignoring-dupes
   "Execute body.
 
