@@ -28,6 +28,7 @@
        (instance? Float ~a) (Float/.compareTo ~a ~b)
        (instance? Double ~a) (Double/.compareTo ~a ~b)
        (instance? Integer ~a) (Integer/.compareTo ~a ~b)
+       (instance? Short ~a) (Short/.compareTo ~a ~b)
        (instance? BigInteger ~a) (BigInteger/.compareTo ~a ~b)
        (instance? BigDecimal ~a) (BigDecimal/.compareTo ~a ~b))))
 
