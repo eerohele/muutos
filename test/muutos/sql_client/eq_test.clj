@@ -161,10 +161,10 @@
           (eq1 pg "varchar" ["SELECT 'varchar'::varchar AS varchar"]))
       "varchar")
 
-    (is (= {42
+    (is (= [42
             "hello"
             true
-            123.45M}
+            123.45M]
           (eq1 pg "record" ["SELECT ROW(42, 'hello'::text, true, 123.45::numeric) AS record"])))
 
     (let [uuid (random-uuid)]

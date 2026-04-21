@@ -299,13 +299,12 @@
       (decode oid (bb/slice len bb)))))
 
 (of-bin 2249 {:name "record"}
-  (let [fields (int32 bb)]
-    (loop [m (transient {}) i 0]
-      (if (= i fields)
-        (persistent! m)
-        (let [k (decode-column bb)
-              v (decode-column bb)]
-          (recur (assoc! m k v) (+ i 2)))))))
+  (let [n (int32 bb)]
+    (loop [xs (transient []) i 0]
+      (if (= i n)
+        (persistent! xs)
+        (let [x (decode-column bb)]
+          (recur (conj! xs x) (inc i)))))))
 
 (of-bin 2278 {:name "void"} nil)
 

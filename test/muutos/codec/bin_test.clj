@@ -120,51 +120,49 @@
     3926 (gen-range (gen-for 20))))
 
 (def gen-record
-  (let [gen-record-kv (gen/one-of [(gen-for 16)
-                                   (gen-for 18)
-                                   (gen-for 21)
-                                   (gen-for 23)
-                                   (gen-for 20)
-                                   (gen-for 25)
-                                   (gen-for 700)
-                                   (gen-for 701)
-                                   (gen-for 1082)
-                                   (gen-for 1083)
-                                   (gen-for 1114)
-                                   (gen-for 1184)
-                                   (gen-for 1186)
-                                   (gen-for 1700)
-                                   (gen-for 2950)
-                                   #_(gen-for 2249) ; FIXME: Support nested records?
-                                   (gen-for 3220)])]
-    (gen/map gen-record-kv gen-record-kv)))
+  (let [gen-record-item (gen/one-of [(gen-for 16)
+                                     (gen-for 18)
+                                     (gen-for 21)
+                                     (gen-for 23)
+                                     (gen-for 20)
+                                     (gen-for 25)
+                                     (gen-for 700)
+                                     (gen-for 701)
+                                     (gen-for 1082)
+                                     (gen-for 1083)
+                                     (gen-for 1114)
+                                     (gen-for 1184)
+                                     (gen-for 1186)
+                                     (gen-for 1700)
+                                     (gen-for 2950)
+                                     #_(gen-for 2249) ; FIXME: Support nested records?
+                                     (gen-for 3220)])]
+    (gen/vector gen-record-item 0 8)))
 
 (comment
   (bin/decode 18 (bin/encode \A))
+  (bin/decode 2249 (encode-record (gen/generate gen-record)))
   ,,,)
 
-(defn ^:private encode-record [m]
-  (let [cnt (count m)
-        kvs (into []
-              (comp
-                cat
-                (map
-                  (fn [x]
-                    (let [oid (type/oid x)
-                          ^ByteBuffer bb (bin/encode x)]
-                      {:oid oid
-                       :len (.limit bb)
-                       :bb bb}))))
-              m)
-        len (reduce (fn [^long n {:keys [^long len]}] (+ n 4 4 len)) 4 kvs)
+(defn ^:private encode-record [v]
+  (let [cnt (count v)
+        xs (mapv
+             (fn [x]
+               (let [oid (type/oid x)
+                     ^ByteBuffer bb (bin/encode x)]
+                 {:oid oid
+                  :len (.limit bb)
+                  :bb bb}))
+             v)
+        len (reduce (fn [^long n {:keys [^long len]}] (+ n 4 4 len)) 4 xs)
         record-bb (.. (ByteBuffer/allocate len)
-                    (putInt (unchecked-multiply-int cnt 2)))]
+                    (putInt cnt))]
     (run! (fn [{:keys [oid len ^ByteBuffer bb]}]
             (.putInt record-bb oid)
             (.putInt record-bb len)
             (.put record-bb bb))
-      kvs)
-    (doto record-bb .flip )))
+      xs)
+    (doto record-bb .flip)))
 
 (defmacro round-trip-prop
   ([oid] `(round-trip-prop ~oid nil))
