@@ -703,7 +703,25 @@
 
     (let [int8range (Range. 10 true 20 false false)]
       (is (= [{"int8range" int8range}]
-            (eq pg ["SELECT $1 AS int8range" int8range]))))))
+            (eq pg ["SELECT $1 AS int8range" int8range]))))
+
+    ;; If both the lower and the upper bound of a Range are nil, Muutos can't
+    ;; determine the range type, so we must cast.
+    (let [int8range (Range. nil false nil false false)]
+      (is (= [{"int8range" int8range}]
+            (eq pg ["SELECT $1::int8range AS int8range" int8range]))))
+
+    (let [int8range (Range. 1 true nil false false)]
+      (is (= [{"int8range" int8range}]
+            (eq pg ["SELECT $1 AS int8range" int8range]))))
+
+    (let [int8range (Range. nil false 1 false false)]
+      (is (= [{"int8range" int8range}]
+            (eq pg ["SELECT $1 AS int8range" int8range]))))
+
+    (is (= [{"overlaps" true}]
+          (eq pg ["SELECT $1::int8range && int8range(1, 10) AS overlaps"
+                  (Range. nil false nil false false)])))))
 
 (deftest ^:integration set-parameter
   (with-open [pg (connect-test)]

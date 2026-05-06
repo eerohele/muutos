@@ -672,24 +672,23 @@
                    upper-bound-inclusive?
                    contain-empty?]}]
     (let [flag-byte (byte (cond-> (byte 0)
-                            (and (nil? lower-bound) (nil? upper-bound)) (bit-set 0)
                             lower-bound-inclusive? (bit-set 1)
                             upper-bound-inclusive? (bit-set 2)
                             (nil? lower-bound) (bit-set 3)
                             (nil? upper-bound) (bit-set 4)
                             contain-empty? (bit-set 7)))
           lower-bound-bb (encode lower-bound)
-          lower-bound-len (.limit lower-bound-bb)
+          ^long lower-bound-len (or (some-> lower-bound-bb .limit) 0)
           upper-bound-bb (encode upper-bound)
-          upper-bound-len (.limit upper-bound-bb)
-          bb (ByteBuffer/allocate (+ 1 4 lower-bound-len 4 upper-bound-len))]
-      (.. bb
-        (put flag-byte)
-        (putInt lower-bound-len)
-        (put lower-bound-bb)
-        (putInt upper-bound-len)
-        (put upper-bound-bb)
-        (flip))))
+          ^long upper-bound-len (or (some-> upper-bound-bb .limit) 0)
+          bb (ByteBuffer/allocate (+ 1 (if lower-bound 4 0) lower-bound-len (if upper-bound 4 0) upper-bound-len))]
+      (-> bb
+        (.put flag-byte)
+        (cond-> lower-bound (.putInt lower-bound-len))
+        (cond-> lower-bound (.put lower-bound-bb))
+        (cond-> upper-bound (.putInt upper-bound-len))
+        (cond-> upper-bound (.put upper-bound-bb))
+        (.flip))))
 
   Object
   (encode [this]
