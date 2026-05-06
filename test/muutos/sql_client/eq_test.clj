@@ -693,11 +693,11 @@
             (eq pg ["SELECT $1 AS tstzrange" tstzrange]))))
 
     (let [daterange (Range.
-                           (LocalDate/parse "2023-01-01")
-                           true
-                           (LocalDate/parse "2023-12-31")
-                           false
-                           false)]
+                      (LocalDate/parse "2023-01-01")
+                      true
+                      (LocalDate/parse "2023-12-31")
+                      false
+                      false)]
       (is (= [{"daterange" daterange}]
             (eq pg ["SELECT $1 AS daterange" daterange]))))
 
