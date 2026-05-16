@@ -378,7 +378,7 @@
                 (flush-lsn)
                 (ExecutorService/.shutdownNow exec-lsn-flusher)
 
-                (log :info ::last-flushed-lsn (lsn->hex-string (-> lsn-flush-state deref :flushed-lsn)))
+                (log :info ::last-flushed-lsn {:lsn (lsn->hex-string (-> lsn-flush-state deref :flushed-lsn))})
 
                 (AtomicReference/.set replicating? false)
                 (FutureTask/.cancel task true)
