@@ -405,6 +405,7 @@
 
 (declare encode-array)
 (declare encode-string-array)
+(declare encode-range)
 
 (defprotocol Parameter
   "A Clojure/Java type that can be encoded into a `java.nio.ByteBuffer` for use
@@ -674,24 +675,7 @@
                    upper-bound
                    upper-bound-inclusive?
                    contain-empty?]}]
-    (let [flag-byte (byte (cond-> (byte 0)
-                            lower-bound-inclusive? (bit-set 1)
-                            upper-bound-inclusive? (bit-set 2)
-                            (nil? lower-bound) (bit-set 3)
-                            (nil? upper-bound) (bit-set 4)
-                            contain-empty? (bit-set 7)))
-          lower-bound-bb (encode lower-bound)
-          ^long lower-bound-len (or (some-> lower-bound-bb .limit) 0)
-          upper-bound-bb (encode upper-bound)
-          ^long upper-bound-len (or (some-> upper-bound-bb .limit) 0)
-          bb (ByteBuffer/allocate (+ 1 (if lower-bound 4 0) lower-bound-len (if upper-bound 4 0) upper-bound-len))]
-      (-> bb
-        (.put flag-byte)
-        (cond-> lower-bound (.putInt lower-bound-len))
-        (cond-> lower-bound (.put lower-bound-bb))
-        (cond-> upper-bound (.putInt upper-bound-len))
-        (cond-> upper-bound (.put upper-bound-bb))
-        (.flip))))
+    (encode-range lower-bound lower-bound-inclusive? upper-bound upper-bound-inclusive? contain-empty?))
 
   Object
   (encode [this]
@@ -779,3 +763,29 @@
           (recur (inc i)))))
 
     (doto bb .flip)))
+
+(defn encode-range
+  "Encode a range into a java.nio.ByteBuffer for sending to PostgreSQL."
+  [lower-bound
+   lower-bound-inclusive?
+   upper-bound
+   upper-bound-inclusive?
+   contain-empty?]
+  (let [flag-byte (byte (cond-> (byte 0)
+                          lower-bound-inclusive? (bit-set 1)
+                          upper-bound-inclusive? (bit-set 2)
+                          (nil? lower-bound) (bit-set 3)
+                          (nil? upper-bound) (bit-set 4)
+                          contain-empty? (bit-set 7)))
+        lower-bound-bb (encode lower-bound)
+        ^long lower-bound-len (or (some-> lower-bound-bb .limit) 0)
+        upper-bound-bb (encode upper-bound)
+        ^long upper-bound-len (or (some-> upper-bound-bb .limit) 0)
+        bb (ByteBuffer/allocate (+ 1 (if lower-bound 4 0) lower-bound-len (if upper-bound 4 0) upper-bound-len))]
+    (-> bb
+      (.put flag-byte)
+      (cond-> lower-bound (.putInt lower-bound-len))
+      (cond-> lower-bound (.put lower-bound-bb))
+      (cond-> upper-bound (.putInt upper-bound-len))
+      (cond-> upper-bound (.put upper-bound-bb))
+      (.flip))))
