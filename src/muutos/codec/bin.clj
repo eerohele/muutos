@@ -358,8 +358,8 @@
 ;; Ranges
 
 (defn decode-range
-  "Given a PostgreSQL data type OID and a java.nio.ByteBuffer, return a
-  muutos.type.Range."
+  "Given a PostgreSQL data type OID and a java.nio.ByteBuffer, decode a
+  muutos.type.Range from the ByteBuffer."
   [oid ^ByteBuffer bb]
   (let [flag-byte (int8 bb)
         empty? (bit-test flag-byte 0)
