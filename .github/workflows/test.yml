@@ -38,6 +38,27 @@ jobs:
       - name: Lint codebase
         run: clojure -M:dev -m clj-kondo.main --lint src test
 
+      - uses: jdx/mise-action@v4
+        with:
+          version: 2025.3.11
+          install: true
+          cache: true
+          mise_toml: |
+            [tools]
+            mkcert = "1.4.4"
+
+      - name: Generate certificates
+        run: mkcert -key-file dev/certs/server.key -cert-file dev/certs/server.crt localhost
+
+      - name: Import certificates
+        run: openssl x509 -inform PEM -outform DER -in "$(mkcert -CAROOT)/rootCA.pem" | keytool -noprompt -import -alias myserver -keystore dev/jks/dev.jks -storepass muutos
+
+      - name: Set SSL key and certificate file permissions
+        run: |
+          sudo chown 999:999 dev/certs/server.key
+          sudo chmod 600 dev/certs/server.key
+          sudo chmod 644 dev/certs/server.crt
+
       - name: Start services
         run: docker compose up --build --detach
 
