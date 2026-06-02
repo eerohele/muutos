@@ -336,6 +336,8 @@
         client
         (reify
           client/Client
+          (id [_] (random-uuid))
+
           (options [_] options)
 
           (aux [_] nil)
