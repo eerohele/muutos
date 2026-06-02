@@ -563,7 +563,7 @@
               (poll q)))
 
         (is (match? {:type :insert
-                     :new-row {"id" 1 "data" {42 "hello"}}
+                     :new-row {"id" 1 "data" [42 "hello"]}
                      :schema "public"
                      :table "t"}
               (poll q)))
