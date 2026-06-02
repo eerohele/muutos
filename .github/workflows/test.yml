@@ -39,7 +39,7 @@ jobs:
         run: clojure -M:dev -m clj-kondo.main --lint src test
 
       - name: Start services
-        run: docker compose up --detach
+        run: docker compose up --build --detach
 
       - name: Run tests
         run: clojure -J-Dapi.version=1.44 -J-Dclojure.main.report=stderr -X:dev kaocha.runner/exec-fn :reporter kaocha.report/documentation
