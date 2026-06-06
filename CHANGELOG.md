@@ -3,6 +3,44 @@
 All notable changes to this project will be documented in this file. This change log follows the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
 ## UNRELEASED
+
+- **BREAKING**: Decode PostgreSQL records into vectors instead of maps.
+
+  Before:
+
+  ```clojure
+  user=> (eq pg ["SELECT ROW(1, 'foo'::text) AS record"])
+  [{"record" {1 "foo"}}]
+  ```
+
+  After:
+
+  ```clojure
+  user=> (eq pg ["SELECT ROW(1, 'foo'::text) AS record"])
+  [{"record" [1 "foo"]}]
+  ```
+
+  Maps were the wrong choice. Records are tuples. It is possible to go
+  from a vector to a map without losing anything but not vice versa.
+
+- **BREAKING**: Fix `muutos.sql-client/eq` return value for `SET` statements
+
+  Prior to this fix, Muutos incorrectly returned e.g. `{:type :parameter :parameter ["TimeZone" "Europe/Helsinki"]}` -- that is, the return value wrapped in the PostgreSQL wire protocol envelope. After the fix, Muutos returns `["TimeZone" "Europe/Helsinki"]`.
+
+- Fix binary encoding of unbounded ranges (e.g. `int8range`)
+
+- Fix logging of last flushed LSN upon subscriber close
+
+  Prior to this fix, Muutos incorrectly logged the LSN, when it was meant to log the LSN wrapped in a map (`{:lsn lsn}`).
+
+- Add **experimental** `muutos.sql-client/lq` function.
+
+  `lq` stands for "latent query". Latent queries are a way execute the same statement with (potentially) different parameters with maximum performance by parsing the statement only once, then re-executing the parsed statement.
+
+- Add **experimental** `muutos.sql-client/transact` macro.
+
+  To execute multiple statements inside a transaction, use the `transact` macro.
+
 - Optimize SQL client by improving buffering
 
 - Implement encoding of `BigDecimal` to PostgreSQL `NUMERIC`
@@ -45,6 +83,10 @@ All notable changes to this project will be documented in this file. This change
 - Fix potential hang when a `SocketException` occurred during subscriber startup
 
 - Add connection pooling example REPL session (see `examples/004_pool.repl`).
+
+- Add support for clear-text password authentication
+
+  Necessary for AWS RDS IAM authentication.
 
 ## 2025-12-18
 - Fix integer overflow when converting log sequence numbers to hex strings
