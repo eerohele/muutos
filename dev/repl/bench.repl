@@ -319,7 +319,7 @@
   (assert (= films (into [] (film-by-id pg (int 1))))))
 
 (println)
-(println "muutos prepare & pool (with contention")
+(println "muutos prepare & pool (with contention)")
 (->
   (concurrently {:threads 1000}
     (pool/with-object pool
@@ -339,7 +339,7 @@
      :dataSourceProperties {:prepareThreshold 5}}))
 
 (println)
-(println "next.jdbc & cache (with contention")
+(println "next.jdbc & cache (with contention)")
 (->
   (concurrently {:threads 1000}
     (assert (= films
