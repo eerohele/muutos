@@ -1,5 +1,38 @@
 [tools]
-clojure = "1.12.4.1629"
-java = "25"
-just = "1.49.0"
-mkcert = "latest"
+clojure = "1.12.6.1673"
+java = "27"
+mkcert = "1.4.4"
+
+[tasks.gen-certs]
+run = [
+  "mkcert -key-file dev/certs/server.key -cert-file dev/certs/server.crt localhost",
+  "openssl x509 -inform PEM -outform DER -in \"$(mkcert -CAROOT)/rootCA.pem\" | keytool -import -alias myserver -keystore dev/jks/dev.jks -storepass muutos",
+]
+
+[tasks.test]
+run = [
+  "clj -X:dev kaocha.runner/exec-fn",
+  "clj -X:user:dev user/check!",
+]
+
+[tasks.pgbench-init]
+run = [
+  "env PGPASSWORD=postgres pgbench --initialize --scale=10 --host=localhost --port=5432 --username=postgres --dbname=postgres",
+  "env PGPASSWORD=postgres pgbench --initialize --scale=10 --host=localhost --port=5433 --username=postgres --dbname=postgres",
+]
+
+[tasks.pgbench-run]
+run = "env PGPASSWORD=postgres pgbench --client=10 --jobs=2 --time=5 --host=localhost --port=5432 --username=postgres --dbname=postgres"
+
+[tasks.pgbench]
+depends = ["pgbench-init", "pgbench-run"]
+
+[tasks.pagila]
+run = [
+  "curl -sL https://raw.githubusercontent.com/devrimgunduz/pagila/refs/heads/master/pagila-schema.sql -o dev/sql/1-pagila-schema.sql",
+  "curl -sL https://raw.githubusercontent.com/devrimgunduz/pagila/refs/heads/master/pagila-schema-jsonb.sql -o dev/sql/2-pagila-schema-jsonb.sql",
+  "curl -sL https://raw.githubusercontent.com/devrimgunduz/pagila/refs/heads/master/pagila-data.sql -o dev/sql/3-pagila-data.sql",
+]
+
+[tasks.recvlogical]
+run = "pg_recvlogical -d postgres --slot my_slot --start --option=proto_version=2 --option=publication_names=p --host=localhost --port=5432 --username=postgres --password --file=-"
