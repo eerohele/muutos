@@ -6,3 +6,4 @@ dev/jks/*.jks
 dev/sql/*pagila*.sql
 .clerk
 target/
+.lsp/
