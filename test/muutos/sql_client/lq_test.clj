@@ -83,9 +83,6 @@
       ;; No protocol desynchronization
       (is (= [{:n 1}] (eq pg ["SELECT $1 AS n" 1]))))))
 
-
-;; TODO: Add test for multiple clients (interlace)
-
 (deftest close-by-name
   (with-open [pg ($)]
     (let [sum (sql/lq "SELECT $1 + $2 AS n" {:name 'sum :oids [(oid :int8)]} )]
