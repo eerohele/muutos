@@ -382,3 +382,39 @@
 (println "muutos eq for comparison")
 (bench/quick-bench
   (sql/eq pg [q-films-by-ids (int-array [1 2 3 4 5 6 7 8 9 10])]))
+
+(require '[next.jdbc.result-set :as rs])
+(import '[org.postgresql.util PGobject])
+
+(defn parse-int8range [s]
+  ;; s looks like "[123,456)" or "(,)" or "empty"
+  (when (and s (not= s "empty"))
+    (let [[_ lb lo hi ub] (re-matches #"([\[\(])(-?\d+)?,(-?\d+)?([\]\)])" s)
+          parse (fn [x] (when x (parse-long x)))]
+      {:lower (parse lo)
+       :upper (parse hi)
+       :lower-inc? (= lb "[")
+       :upper-inc? (= ub "]")})))
+
+(extend-protocol rs/ReadableColumn
+  PGobject
+  (read-column-by-label [obj _]
+    (case (.getType obj)
+      "int8range" (parse-int8range (.getValue obj))
+      obj))
+  (read-column-by-index [obj _meta _i]
+    (case (.getType obj)
+      "int8range" (parse-int8range (.getValue obj))
+      obj)))
+
+(println)
+(println "next.jdbc int8range")
+
+(bench/quick-bench
+  (jdbc/execute! jdbc-conn ["SELECT int8range(150348943278, 250348943278)"]))
+
+(def q (sql/lq "SELECT int8range(150348943278, 250348943278)"))
+
+(println)
+(println "muutos int8range")
+(bench/quick-bench (into [] (q pg)))
