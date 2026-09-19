@@ -67,7 +67,7 @@ All notable changes to this project will be documented in this file. This change
 
   Muutos now decodes `NUMERIC` values rougly 2-3x faster.
 
-- Fix race condition when creating SQL client simultaneously from multiple
+- Fix race condition when creating SQL clients simultaneously from multiple
   threads
 
   Prior to this change, calling `muutos.sql-client/connect` concurrently could
