@@ -77,11 +77,12 @@
 
 (deftest xform-throw
   (with-open [pg ($)]
-    (let [sum (sql/lq "SELECT $1 + $1" {:oids [(oid :int8)]})]
+    (let [sum (sql/lq "SELECT $1 + $2 AS n" {:oids [(oid :int8) (oid :int8)]})]
       (is (thrown? Exception (into [] (map (fn [_] (throw (Exception. "Boom!")))) (sum pg 1 2))))
 
       ;; No protocol desynchronization
-      (is (= [{:n 1}] (eq pg ["SELECT $1 AS n" 1]))))))
+      (is (= [{:n 1}] (eq pg ["SELECT $1 AS n" 1])))
+      (is (= [{:n 7}] (into [] (sum pg 3 4)))))))
 
 (deftest close-by-name
   (with-open [pg ($)]
