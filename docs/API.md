@@ -3,7 +3,9 @@
     -  [`Parameter`](#muutos.codec.bin/parameter) - A Clojure/Java type that can be encoded into a <code>java.nio.ByteBuffer</code> for use as a PostgreSQL query parameter.
     -  [`decode`](#muutos.codec.bin/decode) - Given a PostgreSQL data type OID (<code>int</code>) and a <code>java.nio.ByteBuffer</code>, decode the PostgreSQL value (of the given data type) in the byte buffer into a Java data type.
     -  [`decode-cstring`](#muutos.codec.bin/decode-cstring) - Given a <code>java.nio.ByteBuffer</code>, decode a null-terminated string (aka C string) from the buffer.
+    -  [`decode-range`](#muutos.codec.bin/decode-range) - Given a PostgreSQL data type OID and a java.nio.ByteBuffer, decode a muutos.type.Range from the ByteBuffer.
     -  [`encode`](#muutos.codec.bin/encode) - Encode a parameter into a <code>java.nio.ByteBuffer</code>.
+    -  [`encode-range`](#muutos.codec.bin/encode-range) - Encode a range into a java.nio.ByteBuffer for sending to PostgreSQL.
 -  [`muutos.codec.txt`](#muutos.codec.txt)  - Turn string representations of Postgres data types into Java data types.
     -  [`decode`](#muutos.codec.txt/decode) - Given a PostgreSQL data type OID (<code>int</code>) and a string representing that data type, parse the string into a Java data type.
 -  [`muutos.sql-client`](#muutos.sql-client)  - SQL client.
@@ -43,8 +45,8 @@ Turn Postgres binary data into Java data types and vice versa.
 
 
 A Clojure/Java type that can be encoded into a `java.nio.ByteBuffer` for use
-  as a PostgreSQL query parameter.
-<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/codec/bin.clj#L407-L412">Source</a></sub></p>
+as a PostgreSQL query parameter.
+<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/codec/bin.clj#L410-L415">Source</a></sub></p>
 
 ## <a name="muutos.codec.bin/decode">`decode`</a>
 ``` clojure
@@ -53,8 +55,8 @@ A Clojure/Java type that can be encoded into a `java.nio.ByteBuffer` for use
 Function.
 
 Given a PostgreSQL data type OID (`int`) and a `java.nio.ByteBuffer`, decode
-  the PostgreSQL value (of the given data type) in the byte buffer into a Java
-  data type.
+the PostgreSQL value (of the given data type) in the byte buffer into a Java
+data type.
 <p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/codec/bin.clj#L43-L47">Source</a></sub></p>
 
 ## <a name="muutos.codec.bin/decode-cstring">`decode-cstring`</a>
@@ -64,8 +66,18 @@ Given a PostgreSQL data type OID (`int`) and a `java.nio.ByteBuffer`, decode
 Function.
 
 Given a `java.nio.ByteBuffer`, decode a null-terminated string (aka C
-  string) from the buffer.
+string) from the buffer.
 <p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/codec/bin.clj#L25-L37">Source</a></sub></p>
+
+## <a name="muutos.codec.bin/decode-range">`decode-range`</a>
+``` clojure
+(decode-range oid bb)
+```
+Function.
+
+Given a PostgreSQL data type OID and a java.nio.ByteBuffer, decode a
+muutos.type.Range from the ByteBuffer.
+<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/codec/bin.clj#L360-L381">Source</a></sub></p>
 
 ## <a name="muutos.codec.bin/encode">`encode`</a>
 ``` clojure
@@ -74,7 +86,16 @@ Given a `java.nio.ByteBuffer`, decode a null-terminated string (aka C
 Function.
 
 Encode a parameter into a `java.nio.ByteBuffer`.
-<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/codec/bin.clj#L411-L412">Source</a></sub></p>
+<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/codec/bin.clj#L414-L415">Source</a></sub></p>
+
+## <a name="muutos.codec.bin/encode-range">`encode-range`</a>
+``` clojure
+(encode-range lower-bound lower-bound-inclusive? upper-bound upper-bound-inclusive? contain-empty?)
+```
+Function.
+
+Encode a range into a java.nio.ByteBuffer for sending to PostgreSQL.
+<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/codec/bin.clj#L767-L791">Source</a></sub></p>
 
 -----
 # <a name="muutos.codec.txt">muutos.codec.txt</a>
@@ -92,7 +113,7 @@ Turn string representations of Postgres data types into Java data types.
 Function.
 
 Given a PostgreSQL data type OID (`int`) and a string representing that data
-  type, parse the string into a Java data type.
+type, parse the string into a Java data type.
 <p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/codec/txt.clj#L15-L18">Source</a></sub></p>
 
 -----
@@ -101,7 +122,7 @@ Given a PostgreSQL data type OID (`int`) and a string representing that data
 
 SQL client.
 
-  Suitable for diagnostics, debugging, and low-throughput use cases.
+Suitable for diagnostics, debugging, and low-throughput use cases.
 
 
 
@@ -112,7 +133,7 @@ SQL client.
 
 
 A map of PostgreSQL array data type name (keyword) to data type OID (int4).
-<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L804-L871">Source</a></sub></p>
+<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L771-L838">Source</a></sub></p>
 
 ## <a name="muutos.sql-client/begin">`begin`</a>
 ``` clojure
@@ -122,18 +143,18 @@ Function.
 
 Given a client and options, begin a transaction.
 
-  Options:
+Options:
 
-    - `:isolation-level` (one of `#{:serializable :repeatable-read :read-committed :read-uncommitted}`)
-    - `:access-mode` (one of `#{:read-only :read-write}`)
-    - `:deferrable-mode` (one of `#{:deferrable :not-deferrable}`)
+  - `:isolation-level` (one of `#{:serializable :repeatable-read :read-committed :read-uncommitted}`)
+  - `:access-mode` (one of `#{:read-only :read-write}`)
+  - `:deferrable-mode` (one of `#{:deferrable :not-deferrable}`)
 
-  If you don't pass a value for an option, Muutos leaves the option unset and
-  defers the choice to PostgreSQL.
+If you don't pass a value for an option, Muutos leaves the option unset and
+defers the choice to PostgreSQL.
 
-  For more information about the options, see:
+For more information about the options, see:
 
-  https://www.postgresql.org/docs/current/sql-set-transaction.html
+https://www.postgresql.org/docs/current/sql-set-transaction.html
 <p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L571-L602">Source</a></sub></p>
 
 ## <a name="muutos.sql-client/commit">`commit`</a>
@@ -157,81 +178,81 @@ Function.
 
 Connect to a PostgreSQL database.
 
-  Options:
+Options:
 
-  - `:host` (string, default: `"localhost"`)
+- `:host` (string, default: `"localhost"`)
 
-    The host name of the PostgreSQL server to connect to.
+  The host name of the PostgreSQL server to connect to.
 
-  - `:port` (long, default: `5432`)
+- `:port` (long, default: `5432`)
 
-    Port number.
+  Port number.
 
-  - `:user` (string, default: `"postgres"`)
+- `:user` (string, default: `"postgres"`)
 
-    PostgreSQL user.
+  PostgreSQL user.
 
-  - `:password` (string, default: `"postgres"`)
+- `:password` (string, default: `"postgres"`)
 
-    PostgreSQL user password.
+  PostgreSQL user password.
 
-  - `:database` (string, default: `"postgres"`)
+- `:database` (string, default: `"postgres"`)
 
-    PostgreSQL database.
+  PostgreSQL database.
 
-  - `:replication` (boolean/ident, default: `false`)
+- `:replication` (boolean/ident, default: `false`)
 
-    The replication mode to use for the connection. Use `:database` to execute
-    replication commands (e.g. `CREATE_REPLICATION_SLOT`).
+  The replication mode to use for the connection. Use `:database` to execute
+  replication commands (e.g. `CREATE_REPLICATION_SLOT`).
 
-  - `:oid-fn` (fn, default: `(constantly nil)`)
+- `:oid-fn` (fn, default: `(constantly nil)`)
 
-    A fn that, given `x`, must return the [PostgreSQL data type OID](https://github.com/postgres/postgres/blob/d3d0983169130a9b81e3fe48d5c2ca4931480956/src/include/catalog/pg_type.dat)
-    (an integer) associated with `x`, or `nil`.
+  A fn that, given `x`, must return the [PostgreSQL data type OID](https://github.com/postgres/postgres/blob/d3d0983169130a9b81e3fe48d5c2ca4931480956/src/include/catalog/pg_type.dat)
+  (an integer) associated with `x`, or `nil`.
 
-    Use this option to teach Muutos to tell PostgreSQL the data types of
-    extended query parameters. For example, to teach Muutos to tell
-    PostgreSQL that it should interpret persistent Clojure collections as
-    `jsonb` data:
+  Use this option to teach Muutos to tell PostgreSQL the data types of
+  extended query parameters. For example, to teach Muutos to tell
+  PostgreSQL that it should interpret persistent Clojure collections as
+  `jsonb` data:
 
-    ```clojure
-    ;; 3802 is the PostgreSQL data type OID for JSONB.
-    :oid-fn (fn [x] (when (instance? IPersistentCollection x) 3802))
-    ```
+  ```clojure
+  ;; 3802 is the PostgreSQL data type OID for JSONB.
+  :oid-fn (fn [x] (when (instance? IPersistentCollection x) 3802))
+  ```
 
-    If `oid-fn` returns `nil`, Muutos falls back to the built-in implementation.
-    If the built-in implementation does not recognize the class of `x`, Muutos
-    uses OID 0 to tell PostgreSQL that the data type is unspecified.
+  If `oid-fn` returns `nil`, Muutos falls back to the built-in implementation.
+  If the built-in implementation does not recognize the class of `x`, Muutos
+  uses OID 0 to tell PostgreSQL that the data type is unspecified.
 
-  - `:trust-managers` (coll of `javax.net.ssl.TrustManager`, default: `nil`)
+- `:trust-managers` (coll of `javax.net.ssl.TrustManager`, default: `nil`)
 
-    The trust managers to use when encrypting client/server communication using TLS.
+  The trust managers to use when encrypting client/server communication using TLS.
 
-    Use `nil` to use the default implementation built into your JVM
-    distribution.
+  Use `nil` to use the default implementation built into your JVM
+  distribution.
 
-    See the [`muutos.trust-manager`](#muutos.trust-manager) namespace for a set of pre-defined trust managers.
+  See the [`muutos.trust-manager`](#muutos.trust-manager) namespace for a set of pre-defined trust managers.
 
-  - `:key-fn` (fn, default: `(fn [_table-oid attr-name] attr-name)`)
+- `:key-fn` (fn, default: `(fn [_table-oid attr-name] attr-name)`)
 
-    A fn that, given a PostgreSQL table OID (`int`) and an attribute name
-    (`string`), returns a transformed attribute name.
+  A fn that, given a PostgreSQL table OID (`int`) and an attribute name
+  (`string`), returns a transformed attribute name.
 
-    The default implementation returns the attribute name as is.
+  The default implementation returns the attribute name as is.
 
-    The most common use case for this function is to transform attribute
-    names into keywords. For example:
+  The most common use case for this function is to transform attribute
+  names into keywords. For example:
 
-        :key-fn (fn [_table-oid attr-name] (keyword attr-name))
+      :key-fn (fn [_table-oid attr-name] (keyword attr-name))
 
-  - `:socket-timeout` (`java.time.Duration`, default: PT0S)
+- `:socket-timeout` (`java.time.Duration`, default: PT0S)
 
-    The `SO_TIMEOUT` value of the of the socket connection. A zero duration
-    means infinite timeout.
+  The `SO_TIMEOUT` value of the of the socket connection. A zero duration
+  means infinite timeout.
 
-  - `:connect-timeout` (`java.time.Duration`, default: PT0S)
+- `:connect-timeout` (`java.time.Duration`, default: PT0S)
 
-    TCP connection timeout value. A zero duration means infinite timeout.
+  TCP connection timeout value. A zero duration means infinite timeout.
 <p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L32-L165">Source</a></sub></p>
 
 ## <a name="muutos.sql-client/create-slot">`create-slot`</a>
@@ -241,15 +262,15 @@ Connect to a PostgreSQL database.
 Function.
 
 Given a client and a slot name (string), create a (pgoutput) logical
-  replication slot with the given name.
+replication slot with the given name.
 
-  Options:
+Options:
 
-  - `:temporary?` (boolean, default: `false`)
+- `:temporary?` (boolean, default: `false`)
 
-    If true, do not persist the slot to disk and release it when the current
-    session ends.
-<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L688-L699">Source</a></sub></p>
+  If true, do not persist the slot to disk and release it when the current
+  session ends.
+<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L655-L666">Source</a></sub></p>
 
 ## <a name="muutos.sql-client/drop-slot">`drop-slot`</a>
 ``` clojure
@@ -258,8 +279,8 @@ Given a client and a slot name (string), create a (pgoutput) logical
 Function.
 
 Given a client and a slot name (string), drop the named logical replication
-  slot.
-<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L704-L708">Source</a></sub></p>
+slot.
+<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L671-L675">Source</a></sub></p>
 
 ## <a name="muutos.sql-client/emit-message">`emit-message`</a>
 ``` clojure
@@ -268,24 +289,24 @@ Given a client and a slot name (string), drop the named logical replication
 Function.
 
 Given a SQL client, a prefix (string), content (string or bytes), and
-  options, emit a [logical replication message](https://www.postgresql.org/docs/current/functions-admin.html#PG-LOGICAL-EMIT-MESSAGE).
+options, emit a [logical replication message](https://www.postgresql.org/docs/current/functions-admin.html#PG-LOGICAL-EMIT-MESSAGE).
 
-  Options:
+Options:
 
-  - `:transactional?` (boolean, default: `true`)
+- `:transactional?` (boolean, default: `true`)
 
-    Iff true, send message as part of the current transaction.
+  Iff true, send message as part of the current transaction.
 
-    A non-transactional logical replication message can be useful e.g. when you
-    want to create an audit log entry regardless of whether the SQL statement
-    succeeds.
+  A non-transactional logical replication message can be useful e.g. when you
+  want to create an audit log entry regardless of whether the SQL statement
+  succeeds.
 
-  - `:flush?` (boolean, default: `false`)
+- `:flush?` (boolean, default: `false`)
 
-     Iff true, immediately flush the message into the write-ahead log.
+   Iff true, immediately flush the message into the write-ahead log.
 
-     Has no effect if `:transactional?` is `true`.
-<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L713-L733">Source</a></sub></p>
+   Has no effect if `:transactional?` is `true`.
+<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L680-L700">Source</a></sub></p>
 
 ## <a name="muutos.sql-client/eq">`eq`</a>
 ``` clojure
@@ -295,7 +316,7 @@ Function.
 
 Given a client and any number of query vectors, run an extended query.
 
-  To run a [pipeline](https://www.postgresql.org/docs/current/protocol-flow.html#PROTOCOL-FLOW-PIPELINING) of queries, pass more than one query vector.
+To run a [pipeline](https://www.postgresql.org/docs/current/protocol-flow.html#PROTOCOL-FLOW-PIPELINING) of queries, pass more than one query vector.
 <p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L170-L284">Source</a></sub></p>
 
 ## <a name="muutos.sql-client/ignoring-dupes">`ignoring-dupes`</a>
@@ -306,9 +327,9 @@ Macro.
 
 Execute body.
 
-  If the body throws a `clojure.lang.ExceptionInfo` that indicates a PostgreSQL
-  duplicate object, ignore the exception.
-<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L673-L683">Source</a></sub></p>
+If the body throws a `clojure.lang.ExceptionInfo` that indicates a PostgreSQL
+duplicate object, ignore the exception.
+<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L640-L650">Source</a></sub></p>
 
 ## <a name="muutos.sql-client/lq">`lq`</a>
 ``` clojure
@@ -319,36 +340,36 @@ Function.
 
 EXPERIMENTAL.
 
-  Latent query.
+Latent query.
 
-  Given a statement (string), return a clojure.lang.IFn that, given a client and
-  parameters, returns a reducible of query results.
+Given a statement (string), return a clojure.lang.IFn that, given a client and
+parameters, returns a reducible of query results.
 
-  Use when you need to repeatedly execute the same query with different
-  parameters as efficiently as possible (e.g. when handling  web app HTTP
-  requests).
+Use when you need to repeatedly execute the same query with different
+parameters as efficiently as possible (e.g. when handling  web app HTTP
+requests).
 
-  Does not interact with the PostgreSQL until the first reduction. Only then
-  parses the query string once and caches the result for repeated execution.
+Does not interact with the PostgreSQL until the first reduction. Only then
+parses the query string once and caches the result for repeated execution.
 
-  If the cached plan changes (e.g. because an ALTER TABLE modifies a table the
-  statement uses), Muutos automatically recreates the statement, then retries. If
-  the statement becomes invalid such that it can no longer be executed (e.g. a
-  table the statement queries is deleted), throws an exception.
+If the cached plan changes (e.g. because an ALTER TABLE modifies a table the
+statement uses), Muutos automatically recreates the statement, then retries. If
+the statement becomes invalid such that it can no longer be executed (e.g. a
+table the statement queries is deleted), throws an exception.
 
-  Options:
+Options:
 
-    - `:oids` (vector of ints)
+  - `:oids` (vector of ints)
 
-      A vector of PostgreSQL data type OIDs that specify the type of each
-      parameter. The first element specifies the type of $1, the second $2, and
-      so on.
+    A vector of PostgreSQL data type OIDs that specify the type of each
+    parameter. The first element specifies the type of $1, the second $2, and
+    so on.
 
-      Required when PostgreSQL cannot infer parameter types from the query. For
-      example, given the query string `SELECT $1 + $2`, PostgreSQL does not
-      know whether you want to sum int4s, int8s, float4s, or something else.
+    Required when PostgreSQL cannot infer parameter types from the query. For
+    example, given the query string `SELECT $1 + $2`, PostgreSQL does not
+    know whether you want to sum int4s, int8s, float4s, or something else.
 
-      See also [`muutos.sql-client/oid`](#muutos.sql-client/oid) and [`muutos.sql-client/array-oid`](#muutos.sql-client/array-oid).
+    See also [`muutos.sql-client/oid`](#muutos.sql-client/oid) and [`muutos.sql-client/array-oid`](#muutos.sql-client/array-oid).
 <p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L304-L466">Source</a></sub></p>
 
 ## <a name="muutos.sql-client/oid">`oid`</a>
@@ -357,7 +378,7 @@ EXPERIMENTAL.
 
 
 A map of PostgreSQL data type name (keyword) to data type OID (int4).
-<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L735-L802">Source</a></sub></p>
+<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L702-L769">Source</a></sub></p>
 
 ## <a name="muutos.sql-client/rollback">`rollback`</a>
 ``` clojure
@@ -377,8 +398,8 @@ Function.
 
 Given a client and a query string, run a simple query.
 
-  Simple queries do not support parameter placeholders. They can only be used
-  with trusted inputs.
+Simple queries do not support parameter placeholders. They can only be used
+with trusted inputs.
 <p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L475-L552">Source</a></sub></p>
 
 ## <a name="muutos.sql-client/transact">`transact`</a>
@@ -389,15 +410,15 @@ Macro.
 
 EXPERIMENTAL.
 
-  Given a client, an optional options map (which must be a compile-time
-  literal), and a body, execute the body inside a transaction.
+Given a client, an optional options map (which must be a compile-time
+literal), and a body, execute the body inside a transaction.
 
-  If the body throws, roll back the transaction, else commit.
+If the body throws, roll back the transaction, else commit.
 
-  See [`muutos.sql-client/begin`](#muutos.sql-client/begin) for options.
+See [`muutos.sql-client/begin`](#muutos.sql-client/begin) for options.
 
-  See https://www.postgresql.org/docs/current/sql-set-transaction.html for more
-  information on the options.
+See https://www.postgresql.org/docs/current/sql-set-transaction.html for more
+information on the options.
 <p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/sql_client.clj#L614-L638">Source</a></sub></p>
 
 -----
@@ -428,119 +449,119 @@ Subscribe to a PostgreSQL logical replication stream.
 Function.
 
 Given the name of a logical replication slot (ident or string) and options,
-  subscribe to a PostgreSQL logical replication stream.
+subscribe to a PostgreSQL logical replication stream.
 
-  Options:
+Options:
 
-  - `:publications` (set, default: `#{}`)
+- `:publications` (set, default: `#{}`)
 
-    A set of [publication names](https://www.postgresql.org/docs/current/sql-createpublication.html) to subscribe to.
+  A set of [publication names](https://www.postgresql.org/docs/current/sql-createpublication.html) to subscribe to.
 
-    To create a publication, use e.g. [`muutos.sql-client/eq`](#muutos.sql-client/eq).
+  To create a publication, use e.g. [`muutos.sql-client/eq`](#muutos.sql-client/eq).
 
-  - `:handler` (fn, default: `(constantly nil)`)
+- `:handler` (fn, default: `(constantly nil)`)
 
-    A function with two arities, a 1-arg and 2-arg arity:
+  A function with two arities, a 1-arg and 2-arg arity:
 
-        (fn ([msg] ...) ([msg ack] ...))
+      (fn ([msg] ...) ([msg ack] ...))
 
-    The 1-arg arity receives a Clojure map that describes a PostgreSQL
-    logical replication message.
+  The 1-arg arity receives a Clojure map that describes a PostgreSQL
+  logical replication message.
 
-    The 2-arg arity receives the same and a 0-arg fn that you must call to
-    acknowledge a database transaction as having been processed.
+  The 2-arg arity receives the same and a 0-arg fn that you must call to
+  acknowledge a database transaction as having been processed.
 
-  - `:executor` (`java.util.concurrent.ExecutorService`, default: `(flow-controlling-executor)`)
+- `:executor` (`java.util.concurrent.ExecutorService`, default: `(flow-controlling-executor)`)
 
-    A `java.util.concurrent.ExecutorService` that the subscriber uses to
-    execute the handler function (see `:handler`).
+  A `java.util.concurrent.ExecutorService` that the subscriber uses to
+  execute the handler function (see `:handler`).
 
-  - `:executor-close-fn` (fn, default: see doc)
+- `:executor-close-fn` (fn, default: see doc)
 
-    A fn of one arg that the subscriber calls after closing, passing it the
-    handler function executor (see `:executor`).
+  A fn of one arg that the subscriber calls after closing, passing it the
+  handler function executor (see `:executor`).
 
-    The default implementation shuts down the executor and awaits for
-    its termination for 30 seconds.
+  The default implementation shuts down the executor and awaits for
+  its termination for 30 seconds.
 
-    **Note**: If you shut down the executor immediately (using `.shutdownNow`),
-    it is possible that the executor shuts down before the handler function can
-    inform Muutos that it has successfully processed a transaction. This results
-    in PostgreSQL re-sending Muutos that transaction upon resumption.
+  **Note**: If you shut down the executor immediately (using `.shutdownNow`),
+  it is possible that the executor shuts down before the handler function can
+  inform Muutos that it has successfully processed a transaction. This results
+  in PostgreSQL re-sending Muutos that transaction upon resumption.
 
-  - `:start-lsn` (long or string, default: 0)
+- `:start-lsn` (long or string, default: 0)
 
-    The log sequence number to start replicating from. 0 means the oldest
-    transaction available in the replication slot.
+  The log sequence number to start replicating from. 0 means the oldest
+  transaction available in the replication slot.
 
-  - `:protocol-version` (long, default: 2)
+- `:protocol-version` (long, default: 2)
 
-     [pgoutput protocol version](https://www.postgresql.org/docs/current/protocol-logical-replication.html).
+   [pgoutput protocol version](https://www.postgresql.org/docs/current/protocol-logical-replication.html).
 
-  - `:log` (fn, default: `(constantly nil)`)
+- `:log` (fn, default: `(constantly nil)`)
 
-    A logging function with this signature:
+  A logging function with this signature:
 
-        (fn [level event data] ...)
+      (fn [level event data] ...)
 
-  - `:trust-managers` (coll of `javax.net.ssl.TrustManager`, default: `nil`)
+- `:trust-managers` (coll of `javax.net.ssl.TrustManager`, default: `nil`)
 
-    The trust managers to use when encrypting client/server communication
-    using TLS.
+  The trust managers to use when encrypting client/server communication
+  using TLS.
 
-    Use `nil` to use the default implementation built into your JVM
-    distribution.
+  Use `nil` to use the default implementation built into your JVM
+  distribution.
 
-    See the [`muutos.trust-manager`](#muutos.trust-manager) namespace for a set of pre-defined trust
-    managers.
+  See the [`muutos.trust-manager`](#muutos.trust-manager) namespace for a set of pre-defined trust
+  managers.
 
-  - `:ack-interval` (`java.time.Duration`, default: `(Duration/ofSeconds 10)`)
+- `:ack-interval` (`java.time.Duration`, default: `(Duration/ofSeconds 10)`)
 
-    The interval at which to send acknowledgement messages to the PostgreSQL
-    server.
+  The interval at which to send acknowledgement messages to the PostgreSQL
+  server.
 
-    An acknowledgement message contains the last log sequence number (LSN)
-    the subscriber has successfully processed. An ack message tells PostgreSQL
-    that it can delete entries in its logical replication stream through the
-    given LSN.
+  An acknowledgement message contains the last log sequence number (LSN)
+  the subscriber has successfully processed. An ack message tells PostgreSQL
+  that it can delete entries in its logical replication stream through the
+  given LSN.
 
-    The default value (10 seconds) is the same as the default value of the
-    PostgreSQL `wal_receiver_status_interval` parameter, which specifies the
-    frequency at which a standby PostgreSQL server sends status updates to the
-    primary when replicating.
+  The default value (10 seconds) is the same as the default value of the
+  PostgreSQL `wal_receiver_status_interval` parameter, which specifies the
+  frequency at which a standby PostgreSQL server sends status updates to the
+  primary when replicating.
 
-  - `:key-fn` (fn, default: `(fn [_table-oid attr-name] attr-name)`)
+- `:key-fn` (fn, default: `(fn [_table-oid attr-name] attr-name)`)
 
-    A fn that, given a PostgreSQL table OID (integer) and an attribute name
-    (string), returns a transformed attribute name.
+  A fn that, given a PostgreSQL table OID (integer) and an attribute name
+  (string), returns a transformed attribute name.
 
-    The default implementation returns the attribute name as is.
+  The default implementation returns the attribute name as is.
 
-    The most common use case for this function is to transform attribute names
-    into keywords. For example:
+  The most common use case for this function is to transform attribute names
+  into keywords. For example:
 
-        :key-fn (fn [_table-oid attr-name] (keyword attr-name))
+      :key-fn (fn [_table-oid attr-name] (keyword attr-name))
 
-  - `:messages?` (boolean, default: `true`)
+- `:messages?` (boolean, default: `true`)
 
-    If true, tell PostgreSQL to send messages emitted using the
-    `pg_logical_emit_message` PostgreSQL function.
+  If true, tell PostgreSQL to send messages emitted using the
+  `pg_logical_emit_message` PostgreSQL function.
 
-  - `:streaming` (boolean or `:parallel`, default: false)
+- `:streaming` (boolean or `:parallel`, default: false)
 
-    Whether to support [large transaction streaming](https://www.postgresql.org/docs/current/logicaldecoding-streaming.html).
+  Whether to support [large transaction streaming](https://www.postgresql.org/docs/current/logicaldecoding-streaming.html).
 
-    Using `:parallel` requires `:protocol-version` 4 or higher.
+  Using `:parallel` requires `:protocol-version` 4 or higher.
 
-  - `:socket-timeout` (`java.time.Duration`, default: PT0S)
+- `:socket-timeout` (`java.time.Duration`, default: PT0S)
 
-    The `SO_TIMEOUT` value of the of the socket connection. A zero duration
-    means infinite timeout.
+  The `SO_TIMEOUT` value of the of the socket connection. A zero duration
+  means infinite timeout.
 
-  - `:connect-timeout` (`java.time.Duration`, default: PT0S)
+- `:connect-timeout` (`java.time.Duration`, default: PT0S)
 
-    TCP connection timeout value. A zero duration means infinite timeout.
-<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/subscriber.clj#L137-L430">Source</a></sub></p>
+  TCP connection timeout value. A zero duration means infinite timeout.
+<p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/subscriber.clj#L137-L432">Source</a></sub></p>
 
 ## <a name="muutos.subscriber/flow-controlling-executor">`flow-controlling-executor`</a>
 ``` clojure
@@ -549,13 +570,13 @@ Given the name of a logical replication slot (ident or string) and options,
 Function.
 
 Return a single-thread `java.util.concurrent.ExecutorService` that runs off
-  a non-fair, bounded queue and exerts backpressure when saturated.
+a non-fair, bounded queue and exerts backpressure when saturated.
 
-  Options:
+Options:
 
-  - `:work-queue` (`java.util.concurrent.BlockingQueue`, default: `(ArrayBlockingQueue. 256 false)`)
+- `:work-queue` (`java.util.concurrent.BlockingQueue`, default: `(ArrayBlockingQueue. 256 false)`)
 
-    A `java.util.concurrent.BlockingQueue` to use as the executor work queue.
+  A `java.util.concurrent.BlockingQueue` to use as the executor work queue.
 <p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/subscriber.clj#L115-L131">Source</a></sub></p>
 
 -----
@@ -574,7 +595,7 @@ X.509 trust managers (to support encrypted connections).
 
 An X.509 trust manager that trusts any certificate the server presents to it.
 
-  **Warning**: This trust manager exposes you to man-in-the-middle (MITM) attacks.
+**Warning**: This trust manager exposes you to man-in-the-middle (MITM) attacks.
 <p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/trust_manager.clj#L10-L18">Source</a></sub></p>
 
 ## <a name="muutos.trust-manager/of-rfc-7468-resource">`of-rfc-7468-resource`</a>
@@ -584,9 +605,9 @@ An X.509 trust manager that trusts any certificate the server presents to it.
 Function.
 
 Given a `clojure.java.io/IOFactory` (e.g. a `java.io.File` or
-  `java.net.URI`) that points to a [X.509 certificate](https://datatracker.ietf.org/doc/html/rfc7468),
-  return a collection of X.509 trust managers derived from the certificate.
+`java.net.URI`) that points to a [X.509 certificate](https://datatracker.ietf.org/doc/html/rfc7468),
+return a collection of X.509 trust managers derived from the certificate.
 
-  You can use this function e.g. to generate a collection of trust managers
-  derived from [AWS RDS SSL certificates](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.SSL.html#UsingWithRDS.SSL.CertificatesDownload).
+You can use this function e.g. to generate a collection of trust managers
+derived from [AWS RDS SSL certificates](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.SSL.html#UsingWithRDS.SSL.CertificatesDownload).
 <p><sub><a href="https://github.com/eerohele/muutos/blob/main/src/muutos/trust_manager.clj#L26-L50">Source</a></sub></p>
