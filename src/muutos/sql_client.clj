@@ -107,7 +107,7 @@
   - `:connect-timeout` (`java.time.Duration`, default: PT0S)
 
     TCP connection timeout value. A zero duration means infinite timeout."
-  ^AutoCloseable [& {:keys [^String host ^long port user password database replication log  oid-fn]
+  ^AutoCloseable [& {:keys [^String host ^long port user password database replication log oid-fn]
                      :or {oid-fn (constantly nil)
                           log (constantly nil)}
                      :as options}]
