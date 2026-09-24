@@ -2,9 +2,7 @@
   (:require [clojure.test :refer [deftest is]]
             [muutos.sql-client :refer [connect sq]]))
 
-;; TODO: scram-sha-256-plus
-
-(deftest ^:integration scram-sha-256
+(deftest ^:integration scram-sha-256-plus
   (with-open [pg (connect)]
     (is (= [{"a" 1}] (sq pg "SELECT 1 AS a")))
     (is (= [{"ssl" true
