@@ -2,7 +2,7 @@
 
 Muutos is a zero-dependency [PostgreSQL](https://www.postgresql.org/)
 [logical decoding](https://www.postgresql.org/docs/current/logicaldecoding.html)
-client library written in and for Clojure.
+and SQL client library written in and for Clojure.
 
 You can use Muutos to subscribe to changes in a PostgreSQL database.
 You tell Muutos which changes you're interested in and give it a callback
@@ -10,6 +10,8 @@ function. When such a change occurs, Muutos calls the callback function you
 give it with a Clojure map that describes the change.
 
 Muutos uses the built-in [`pgoutput`](https://www.postgresql.org/docs/current/protocol-logical-replication.html#PROTOCOL-LOGICAL-REPLICATION) logical decoding output plugin and requires no additional dependencies on the PostgreSQL server.
+
+Muutos is also a [SQL client](https://github.com/eerohele/muutos/blob/main/docs/INDEX.md#working-with-sql).
 
 ## Rationale
 
@@ -40,16 +42,17 @@ Here is a list of some of the benefits and drawbacks of using change data captur
 
 - Near-instant; no polling interval delays.
 - No polling-incurred performance penalty.
-- Retains ordering.
+- Retains ordering by default.
 - No need to design and implement a transactional outbox table (including pruning it). If you have multiple apps  (e.g. microservices) that need to react to changes in the database, you don't need to implement a transactional outbox in each one.
 - You can use [`pg_logical_emit_message`](https://www.postgresql.org/docs/current/functions-admin.html#FUNCTIONS-REPLICATION) to [emit arbitrary binary payloads](https://www.infoq.com/articles/wonders-of-postgres-logical-decoding-messages/) from the PostgreSQL server, transactionally or not. This allows you to decouple the messages you send from the structure of your database without having to implement an outbox table.
 - With logical decoding, you can use [pg_cron](https://github.com/citusdata/pg_cron) together with [`pg_logical_emit_message`](https://www.postgresql.org/docs/current/functions-admin.html#FUNCTIONS-REPLICATION) as a lightweight task scheduler.
-- You can use [log sequence numbers](https://www.postgresql.org/docs/current/datatype-pg-lsn.html) as [reliable idempotency keys](https://www.morling.dev/blog/on-idempotency-keys/#_deriving_idempotency_keys_from_the_transaction_log)
+- You can use [log sequence numbers](https://www.postgresql.org/docs/current/datatype-pg-lsn.html) as [reliable idempotency keys](https://www.morling.dev/blog/on-idempotency-keys/#_deriving_idempotency_keys_from_the_transaction_log).
 
 ### Drawbacks of using change data capture instead of polling
 
 - Increased disk use while PostgreSQL retains write-ahead logs until the change data capture tool has successfully processed changes. This can be a problem especially is the tool is offline for an extended length of time. (An outbox table can also eat up disk space if the outbox processor is offline, of course.)
 - When replicating tables (as opposed to using [`pg_logical_emit_message`](https://www.postgresql.org/docs/current/functions-admin.html#FUNCTIONS-REPLICATION)), you must make sure that the change data capture tool is resilient to database schema changes. PostgreSQL does not write [data definition language](https://www.postgresql.org/docs/current/ddl.html) (DDL) statements into its write-ahead log.
+- Change data capture is not suitable for long-running, unordered tasks.
 
 ### Benefits of using Muutos instead of other change data capture tools
 
@@ -62,7 +65,7 @@ Here is a list of some of the benefits and drawbacks of using change data captur
 - Muutos only supports PostgreSQL.
 - Muutos is not (yet) battle-tested.
 - Muutos has massively fewer features than tools such as [Debezium](https://debezium.io/).
-- Muutos makes no attempt at [exactly-once delivery](https://bravenewgeek.com/you-cannot-have-exactly-once-delivery/). You must be able to live with duplicate messages (only when Muutos shuts down uncleanly).
+- Muutos makes no attempt at [exactly-once delivery](https://bravenewgeek.com/you-cannot-have-exactly-once-delivery/). You must be able to live with duplicate messages (which can only occur when Muutos shuts down uncleanly).
 - ...and any number of other drawbacks yet to be discovered.
 
 ## Subscribing to a logical replication stream
@@ -350,7 +353,7 @@ true
 ;;
 ;; Once 10 seconds have elapsed, we can check the current LSN of the replication
 ;; slot once again:
-user=> (Thread/sleep 5000)
+user=> (Thread/sleep 10000)
 nil
 user=> (sql/eq pg ["SELECT confirmed_flush_lsn FROM pg_replication_slots WHERE slot_name = 'my_slot'"])
 [{"confirmed_flush_lsn" #muutos.type.LogSequenceNumber{:segment 0 :byte-offset 37921944}}]
@@ -644,8 +647,7 @@ nil
 
 ## Working with SQL
 
-Muutos includes a SQL client that's suitable for setting up logical
-replication, diagnostics, debugging, and as a general-purpose SQL client.
+Muutos comes with a general-purpose SQL client, making Muutos a viable alternative to JDBC-based PostgreSQL clients.
 
 ### Connecting to a PostgreSQL server
 
@@ -781,6 +783,8 @@ Muutos does not have a connection pool implementation.
 
 If you need connection pooling, you can use Muutos with a general-purpose connection pool, such as [clj-pool-party](https://github.com/enragedginger/clj-pool-party). See [`004_pool.repl`](/examples/004_pool.repl) for an example on how to use Muutos with clj-pool-party.
 
+(I'm planning on adding a connection pool implementation to Muutos eventually, but no promises.)
+
 ### Closing the SQL client
 
 The Muutos SQL client implements [`java.lang.AutoCloseable`](https://download.java.net/java/early_access/jdk25/docs/api/java.base/java/lang/AutoCloseable.html). When we're done using the SQL client, we can close it.
@@ -816,7 +820,7 @@ user=> (def pg (connect :trust-managers trust-managers))
 #'user/pg
 ```
 
-If you're absolutely sure you know what you're doing, you can use `muutos.trust-manager/credulous-x509-trust-manager` to have Muutos accept any server certificate.
+If you're absolutely sure you know what you're doing, you can use `muutos.trust-manager/credulous-x509-trust-manager` to have Muutos accept any server certificate. Note that that will render you susceptible to man-in-the-middle attacks, however.
 
 ## Using Muutos as a scheduler with pg_cron
 
@@ -914,18 +918,18 @@ In this table, "B" stands for binary, and "T" stands for text.
 | 1560  | `bit`          | [`String`][java.lang.String]                                    | ✗        | ✗         | ✓         |                            | ✓        | [✗]     | ✓         |
 | 1562  | `varbit`       | [`String`][java.lang.String]                                    | ✗        | ✗         | ✓         |
 | 1700  | `numeric`      | [`BigDecimal`][java.math.BigDecimal]                            | ✓        | ✓         | ✓         |
-| 2249  | `record`       | [`IPersistentMap`][clojure.lang.IPersistentMap]                 | ✓        | ✗         | ✗         |
+| 2249  | `record`       | [`IPersistentVector`][clojure.lang.IPersistentVector]           | ✓        | ✗         | ✗         |
 | 2278  | `void`         | `null`                                                          | ✓        | ✗         | ✓         |
 | 2950  | `uuid`         | [`UUID`][java.util.UUID]                                        | ✓        | ✓         | ✓         |
 | 3220  | `pg_lsn`       | `m.t.LogSequenceNumber`                                         | ✓        | ✓         | ✓         |
 | 3614  | `tsvector`     | `m.t.Document` of `m.t.Lexeme`                                          | ✓        | ✗         | ✗         |
 | 3802  | `jsonb`        | `bytes`[^1] (B), [`String`][java.lang.String][^4] (T)           | ✓        | ✓         | ✓         |
-| 3904  | `int4range`    | `m.t.Range`                                                     | ✓        | ✗         | ✗         |
-| 3906  | `numrange`     | `m.t.Range`                                                     | ✓        | ✗         | ✗         |
-| 3908  | `tsrange`      | `m.t.Range`                                                     | ✓        | ✗         | ✗         |
-| 3910  | `tstzrange`    | `m.t.Range`                                                     | ✓        | ✗         | ✗         |
-| 3912  | `daterange`    | `m.t.Range`                                                     | ✓        | ✗         | ✗         |
-| 3926  | `int8range`    | `m.t.Range`                                                     | ✓        | ✗         | ✗         |
+| 3904  | `int4range`    | `m.t.Range`                                                     | ✓        | ✓         | ✗         |
+| 3906  | `numrange`     | `m.t.Range`                                                     | ✓        | ✓         | ✗         |
+| 3908  | `tsrange`      | `m.t.Range`                                                     | ✓        | ✓         | ✗         |
+| 3910  | `tstzrange`    | `m.t.Range`                                                     | ✓        | ✓         | ✗         |
+| 3912  | `daterange`    | `m.t.Range`                                                     | ✓        | ✓         | ✗         |
+| 3926  | `int8range`    | `m.t.Range`                                                     | ✓        | ✓         | ✗         |
 
 > [!IMPORTANT]
 > Attempting to decode a non-supported data type will throw an exception and close the client.
@@ -945,7 +949,7 @@ In this table, "B" stands for binary, and "T" stands for text.
 [^7]: By contrast, [`LISTEN`](https://www.postgresql.org/docs/current/sql-listen.html)/[`NOTIFY`](https://www.postgresql.org/docs/current/sql-notify.html) is not reliable: if you `NOTIFY` when no one is `LISTEN`ing, the notification is lost.
 
 [pg.money]: https://www.postgresql.org/docs/current/datatype-money.html
-[clojure.lang.IPersistentMap]: https://clojure.org/reference/data_structures#Maps
+[clojure.lang.IPersistentVector]: https://clojure.org/reference/data_structures#Vectors
 [java.lang.String]: https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/lang/String.html
 [java.math.BigDecimal]: https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/math/BigDecimal.html
 [java.math.BigInteger]: https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/math/BigInteger.html
