@@ -290,7 +290,7 @@
 (defspec round-trip-circle 100000 (round-trip-prop 718))
 
 (defspec round-trip-int4range 100000 (round-trip-prop 3904))
-#_(defspec round-trip-numrange 100 (round-trip-prop 3906)) ; FIXME
+(defspec round-trip-numrange 100 (round-trip-prop 3906))
 (defspec round-trip-tsrange 100000 (round-trip-prop 3908))
 (defspec round-trip-tstzrange 100000 (round-trip-prop 3910))
 (defspec round-trip-daterange 100000 (round-trip-prop 3912))
