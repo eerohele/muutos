@@ -140,4 +140,3 @@
    :password "postgres"
    :port 5432
    :key-fn (fn [_table-oid attr-name] attr-name)})
-
