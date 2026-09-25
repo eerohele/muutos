@@ -1,8 +1,6 @@
 (ns muutos.sql-client.client-test
   (:require [clojure.test :refer [deftest is]]
-            [muutos.test.concurrency :refer [concurrently]]
-            [muutos.sql-client :refer [connect sq]])
-  (:import (java.util.concurrent ArrayBlockingQueue)))
+            [muutos.sql-client :refer [connect sq]]))
 
 (set! *warn-on-reflection* true)
 
