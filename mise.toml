@@ -3,6 +3,9 @@ clojure = "1.12.6.1673"
 java = "25"
 mkcert = "1.4.4"
 
+[tasks.services]
+run = "docker compose up --build --detach"
+
 [tasks.gen-certs]
 run = [
   "mkcert -key-file dev/certs/server.key -cert-file dev/certs/server.crt localhost",
