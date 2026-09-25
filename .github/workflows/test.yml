@@ -89,10 +89,7 @@ jobs:
           sudo chmod 600 dev/certs/server.key
           sudo chmod 644 dev/certs/server.crt
 
-      - run: |
-          curl -sL https://raw.githubusercontent.com/devrimgunduz/pagila/refs/heads/master/pagila-schema.sql -o dev/sql/1-pagila-schema.sql
-          curl -sL https://raw.githubusercontent.com/devrimgunduz/pagila/refs/heads/master/pagila-schema-jsonb.sql -o dev/sql/2-pagila-schema-jsonb.sql
-          curl -sL https://raw.githubusercontent.com/devrimgunduz/pagila/refs/heads/master/pagila-data.sql -o dev/sql/3-pagila-data.sql
+      - run: mise pagila
 
       - name: Start services
         run: mise services

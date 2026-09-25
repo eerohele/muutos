@@ -32,9 +32,9 @@ depends = ["pgbench-init", "pgbench-run"]
 
 [tasks.pagila]
 run = [
-  "curl -sL https://raw.githubusercontent.com/devrimgunduz/pagila/refs/heads/master/pagila-schema.sql -o dev/sql/1-pagila-schema.sql",
-  "curl -sL https://raw.githubusercontent.com/devrimgunduz/pagila/refs/heads/master/pagila-schema-jsonb.sql -o dev/sql/2-pagila-schema-jsonb.sql",
-  "curl -sL https://raw.githubusercontent.com/devrimgunduz/pagila/refs/heads/master/pagila-data.sql -o dev/sql/3-pagila-data.sql",
+  "curl -sL https://raw.githubusercontent.com/devrimgunduz/pagila//23f7fe7a1e9f5772f85fc14f530583ffa258c6d2/pagila-schema.sql -o dev/sql/1-pagila-schema.sql",
+  "curl -sL https://raw.githubusercontent.com/devrimgunduz/pagila//23f7fe7a1e9f5772f85fc14f530583ffa258c6d2/pagila-schema-jsonb.sql -o dev/sql/2-pagila-schema-jsonb.sql",
+  "curl -sL https://raw.githubusercontent.com/devrimgunduz/pagila//23f7fe7a1e9f5772f85fc14f530583ffa258c6d2/pagila-data.sql -o dev/sql/3-pagila-data.sql",
 ]
 
 [tasks.recvlogical]
