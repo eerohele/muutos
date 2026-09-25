@@ -16,7 +16,7 @@ run = [
 run = "clojure -J-Dapi.version=1.44 -J-Dclojure.main.report=stderr -X:dev kaocha.runner/exec-fn :reporter kaocha.report/documentation"
 
 [tasks.xr]
-run = "clojure -J-Dclojure.main.report=stderr -X:dev user/check!"
+run = "clojure -J-Dapi.version=1.44 -J-Dclojure.main.report=stderr -X:dev user/check!"
 
 [tasks.pgbench-init]
 run = [
