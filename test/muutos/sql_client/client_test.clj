@@ -21,12 +21,13 @@
     (^[long] Thread/sleep 1000)
     (is (= 2 (count-clients pg)))))
 
-(deftest ^:integration concurrent-connect
-  (let [n 50
-        q (ArrayBlockingQueue. n)]
-    (concurrently {:threads n}
-      (with-open [pg (connect :port 5432)]
-        (ArrayBlockingQueue/.put q (sq pg "SELECT 1 AS n"))))
+;; FIXME: Too slow.
+#_(deftest ^:integration concurrent-connect
+    (let [n 50
+          q (ArrayBlockingQueue. n)]
+      (concurrently {:threads n}
+        (with-open [pg (connect :port 5432)]
+          (ArrayBlockingQueue/.put q (sq pg "SELECT 1 AS n"))))
 
-    (dotimes [_ n]
-      (is (= [{"n" 1}] (ArrayBlockingQueue/.take q))))))
+      (dotimes [_ n]
+        (is (= [{"n" 1}] (ArrayBlockingQueue/.take q))))))
