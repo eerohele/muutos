@@ -9,7 +9,7 @@ run = "docker compose up --build --detach"
 [tasks.gen-certs]
 run = [
   "mkcert -key-file dev/certs/server.key -cert-file dev/certs/server.crt localhost",
-  "openssl x509 -inform PEM -outform DER -in \"$(mkcert -CAROOT)/rootCA.pem\" | keytool -import -alias myserver -keystore dev/jks/dev.jks -storepass muutos",
+  "openssl x509 -inform PEM -outform DER -in \"$(mkcert -CAROOT)/rootCA.pem\" | keytool -noprompt -import -alias myserver -keystore dev/jks/dev.jks -storepass muutos",
 ]
 
 [tasks.test]

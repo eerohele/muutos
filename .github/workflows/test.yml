@@ -33,11 +33,8 @@ jobs:
       - name: Lint codebase
         run: clojure -M:dev -m clj-kondo.main --lint src test
 
-      - name: Generate certificates
-        run: mkcert -key-file dev/certs/server.key -cert-file dev/certs/server.crt localhost
-
-      - name: Import certificates
-        run: openssl x509 -inform PEM -outform DER -in "$(mkcert -CAROOT)/rootCA.pem" | keytool -noprompt -import -alias myserver -keystore dev/jks/dev.jks -storepass muutos
+      - name: Generate and import certificates
+        run: mise gen-certs
 
       - name: Set SSL key and certificate file permissions
         run: |
@@ -77,11 +74,8 @@ jobs:
           key: deps-${{ hashFiles('deps.edn') }}
           restore-keys: deps-
 
-      - name: Generate certificates
-        run: mkcert -key-file dev/certs/server.key -cert-file dev/certs/server.crt localhost
-
-      - name: Import certificates
-        run: openssl x509 -inform PEM -outform DER -in "$(mkcert -CAROOT)/rootCA.pem" | keytool -noprompt -import -alias myserver -keystore dev/jks/dev.jks -storepass muutos
+      - name: Generate and import certificates
+        run: mise gen-certs
 
       - name: Set SSL key and certificate file permissions
         run: |
