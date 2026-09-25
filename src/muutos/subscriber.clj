@@ -301,7 +301,7 @@
 
         sql-client (or (:sql-client options)
                      (sql-client/connect
-                       (-> options (assoc :client-type :aux) (dissoc :replication))))
+                       (-> options (assoc :client-type :aux) (dissoc :key-fn :replication))))
 
         ^FutureTask task
         (FutureTask.
