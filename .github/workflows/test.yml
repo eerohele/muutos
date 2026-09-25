@@ -31,7 +31,7 @@ jobs:
           restore-keys: deps-
 
       - name: Lint codebase
-        run: clojure -M:dev -m clj-kondo.main --lint src test
+        run: mise lint
 
       - name: Generate and import certificates
         run: mise gen-certs

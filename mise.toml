@@ -6,6 +6,9 @@ mkcert = "1.4.4"
 [tasks.services]
 run = "docker compose up --build --detach"
 
+[tasks.lint]
+run = "clojure -M:dev -m clj-kondo.main --lint src test"
+
 [tasks.gen-certs]
 run = [
   "mkcert -key-file dev/certs/server.key -cert-file dev/certs/server.crt localhost",
