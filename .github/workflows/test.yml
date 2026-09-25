@@ -49,7 +49,12 @@ jobs:
         run: mise test
 
       - name: Stop services
+        if: always()
         run: docker compose down --volumes --remove-orphans
+
+      - name: Print logs
+        if: always()
+        run: docker compose logs
 
   transcribe:
     runs-on: ubuntu-24.04
@@ -95,6 +100,6 @@ jobs:
         if: always()
         run: docker compose down --volumes --remove-orphans
 
-      - name: Print Docker Compose logs
+      - name: Print logs
         if: always()
         run: docker compose logs
