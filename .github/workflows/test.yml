@@ -14,16 +14,11 @@ jobs:
       - name: Clone repository
         uses: actions/checkout@v6
 
-      - name: Install JDK
-        uses: actions/setup-java@v5
+      - uses: jdx/mise-action@v4
         with:
-          distribution: "temurin"
-          java-version: "25"
-
-      - name: Install Clojure CLI
-        uses: DeLaGuardo/setup-clojure@13.6.1
-        with:
-          cli: 1.12.5.1654
+          version: 2025.3.11
+          install: true
+          cache: true
 
       - name: Cache dependencies
         uses: actions/cache@v5
@@ -38,15 +33,6 @@ jobs:
       - name: Lint codebase
         run: clojure -M:dev -m clj-kondo.main --lint src test
 
-      - uses: jdx/mise-action@v4
-        with:
-          version: 2025.3.11
-          install: true
-          cache: true
-          mise_toml: |
-            [tools]
-            mkcert = "1.4.4"
-
       - name: Generate certificates
         run: mkcert -key-file dev/certs/server.key -cert-file dev/certs/server.crt localhost
 
@@ -60,10 +46,10 @@ jobs:
           sudo chmod 644 dev/certs/server.crt
 
       - name: Start services
-        run: docker compose up --build --detach
+        run: mise services
 
       - name: Run tests
-        run: clojure -J-Dapi.version=1.44 -J-Dclojure.main.report=stderr -X:dev kaocha.runner/exec-fn :reporter kaocha.report/documentation
+        run: mise test
 
       - name: Stop services
         run: docker compose down --volumes --remove-orphans
@@ -75,16 +61,11 @@ jobs:
       - name: Clone repository
         uses: actions/checkout@v6
 
-      - name: Install JDK
-        uses: actions/setup-java@v5
+      - uses: jdx/mise-action@v4
         with:
-          distribution: "temurin"
-          java-version: "25"
-
-      - name: Install Clojure CLI
-        uses: DeLaGuardo/setup-clojure@13.6.1
-        with:
-          cli: 1.12.5.1654
+          version: 2025.3.11
+          install: true
+          cache: true
 
       - name: Cache dependencies
         uses: actions/cache@v5
@@ -95,15 +76,6 @@ jobs:
             .cpcache
           key: deps-${{ hashFiles('deps.edn') }}
           restore-keys: deps-
-
-      - uses: jdx/mise-action@v4
-        with:
-          version: 2025.3.11
-          install: true
-          cache: true
-          mise_toml: |
-            [tools]
-            mkcert = "1.4.4"
 
       - name: Generate certificates
         run: mkcert -key-file dev/certs/server.key -cert-file dev/certs/server.crt localhost
@@ -123,10 +95,10 @@ jobs:
           curl -sL https://raw.githubusercontent.com/devrimgunduz/pagila/refs/heads/master/pagila-data.sql -o dev/sql/3-pagila-data.sql
 
       - name: Start services
-        run: docker compose up --build --detach
+        run: mise services
 
       - name: Run transcriptions
-        run: clojure -J-Dclojure.main.report=stderr -X:dev user/check!
+        run: mise xr
 
       - name: Stop services
         if: always()
