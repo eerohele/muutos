@@ -1,6 +1,6 @@
 [tools]
 clojure = "1.12.6.1673"
-java = "27"
+java = "25"
 mkcert = "1.4.4"
 
 [tasks.gen-certs]
