@@ -88,10 +88,12 @@ All notable changes to this project will be documented in this file. This change
 
   Necessary for AWS RDS IAM authentication.
 
-## 2025-12-18
+## 2025-12-18.23-alpha
+
 - Fix integer overflow when converting log sequence numbers to hex strings
 - Omit expected and actual SCRAM-SHA-256 signatures from exception data
 - Improve docstrings
 
-## 2025-10-30
+## 2025-10-30.9-alpha
+
 - Initial alpha release
