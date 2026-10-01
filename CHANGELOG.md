@@ -92,6 +92,10 @@ All notable changes to this project will be documented in this file. This change
 
   The implementation that installs custom data type decoders depends on the default `:key-fn` implementation. Prior to this change, Muutos erroneously used the user-supplied `:key-fn` when installing a decoder for a custom data type.
 
+- Acknowledge non-transactional messages [#6](https://github.com/eerohele/muutos/issues/6)
+
+  Prior to this change, Muutos never acknowledged `pg_logical_emit_message` messages with the `transactional` flag set to false.
+
 ## 2025-12-18.23-alpha
 
 - Fix integer overflow when converting log sequence numbers to hex strings

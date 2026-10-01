@@ -167,6 +167,13 @@
     (handler msg))
   (dissoc state :tx-state))
 
+(defmethod handle-wal-message :message
+  [{:keys [ack-fn] :as state} handler {:keys [flags lsn] :as msg}]
+  (case flags
+    :transactional (handler msg)
+    (handler msg (partial ack-fn lsn)))
+  state)
+
 (defmethod handle-wal-message :default
   [state handler msg]
   (handler msg)

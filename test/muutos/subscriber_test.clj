@@ -147,9 +147,9 @@
    :tx-end-lsn int64?
    :commit-timestamp instant?})
 
-(defn message [prefix content]
+(defn message [prefix content & {:keys [flags] :or {flags :transactional}}]
   {:type :message
-   :flags :transactional
+   :flags flags
    :lsn int64?
    :prefix prefix
    :content content})
@@ -1173,3 +1173,23 @@
               sub (connect "s" :port 5436)]
     (is (thrown-match? ExceptionInfo {::anomalies/category ::anomalies/unavailable}
           (deref sub)))))
+
+(deftest ^:integration non-transactional-message
+  (let [q (SynchronousQueue. true)]
+    (with-open [_slot (replication-slot "s")
+                client (test-client)]
+      (with-open [_sub (connect "s" :handler (q-handler q))]
+        (emit-message client "prefix" "message-1" :transactional? false)
+
+        (is (match? (message "prefix" "message-1" :flags :none)
+              (update (poll q) :content utf8-str))))
+
+      (emit-message client "prefix" "message-2" :transactional? true)
+
+      (with-open [_sub (connect "s" :handler (q-handler q))]
+        (is (match? begin (poll q)))
+
+        (is (match? (message "prefix" "message-2")
+              (update (poll q) :content utf8-str)))
+
+        (is (match? commit (poll q)))))))
