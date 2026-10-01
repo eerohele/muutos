@@ -53,7 +53,11 @@
   (spec/keys :req-un [::type ::lsn ::commit-timestamp ::xid]))
 
 (spec/def :message/flags
-  #{:none :transactional})
+  (spec/with-gen
+    (fn [s] (set/subset? s #{:none :transactional}))
+    #(gen/frequency [[50 (gen/return #{:none})]
+                     [50 (gen/return #{:transactional})]
+                     [0 (gen/return #{:none :transactional})]])))
 
 (spec/def ::string (spec/and string? (fn [s] (not= "\0" s))))
 

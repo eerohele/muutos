@@ -27,6 +27,21 @@ All notable changes to this project will be documented in this file. This change
 
   Prior to this fix, Muutos incorrectly returned e.g. `{:type :parameter :parameter ["TimeZone" "Europe/Helsinki"]}` -- that is, the return value wrapped in the PostgreSQL wire protocol envelope. After the fix, Muutos returns `["TimeZone" "Europe/Helsinki"]`.
 
+- **BREAKING**: Use sets instead of keywords for logical replication message flags
+
+  Before:
+
+  ```clojure
+  {:type :message
+   :flags :transactional
+   :lsn 37958776
+   :prefix "my-prefix"
+   ;; The UTF-8 bytes for the string "Hello, world!".
+   :content #bytes "48656C6C6F2C20776F726C6421"}
+  ```
+
+  `:flags` is plural, so using a keyword was a mistake. The only currently supported values are `:none` and `:transactional`, but we must support more than one flag so that we can accommodate it if PostgreSQL decides to add one.
+
 - Fix binary encoding of unbounded ranges (e.g. `int8range`)
 
 - Fix logging of last flushed LSN upon subscriber close

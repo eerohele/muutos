@@ -169,8 +169,8 @@
 
 (defmethod handle-wal-message :message
   [{:keys [ack-fn] :as state} handler {:keys [flags lsn] :as msg}]
-  (case flags
-    :transactional (handler msg)
+  (if (contains? flags :transactional)
+    (handler msg)
     (handler msg (partial ack-fn lsn)))
   state)
 

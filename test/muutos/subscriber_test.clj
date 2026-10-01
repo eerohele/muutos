@@ -147,7 +147,7 @@
    :tx-end-lsn int64?
    :commit-timestamp instant?})
 
-(defn message [prefix content & {:keys [flags] :or {flags :transactional}}]
+(defn message [prefix content & {:keys [flags] :or {flags #{:transactional}}}]
   {:type :message
    :flags flags
    :lsn int64?
@@ -1181,7 +1181,7 @@
       (with-open [_sub (connect "s" :handler (q-handler q))]
         (emit-message client "prefix" "message-1" :transactional? false)
 
-        (is (match? (message "prefix" "message-1" :flags :none)
+        (is (match? (message "prefix" "message-1" :flags #{:none})
               (update (poll q) :content utf8-str))))
 
       (emit-message client "prefix" "message-2" :transactional? true)

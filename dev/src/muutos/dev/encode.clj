@@ -73,7 +73,7 @@
     (-> (ByteBuffer/allocate (+ 1 (if xid 4 0) 1 8 (.remaining prefix) 1 4 len))
       (.put (byte #_\M 77))
       (cond-> xid (.putInt xid))
-      (.put (byte (case flags :none 0 :transactional 1)))
+      (.put (byte (case flags #{:none} 0 #{:transactional} 1)))
       (.putLong lsn)
       (.put prefix)
       (.put (byte 0))
