@@ -103,7 +103,7 @@ Muutos uses the built-in [`pgoutput`](https://www.postgresql.org/docs/current/pr
  :commit-timestamp #instant "2025-05-26T12:16:38.133276Z"
  :xid 999}
 {:type :message
- :flags :transactional
+ :flags #{:transactional}
  :lsn 37958776
  :prefix "my-prefix"
  ;; The UTF-8 bytes for the string "Hello, world!".
