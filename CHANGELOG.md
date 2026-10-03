@@ -40,7 +40,7 @@ All notable changes to this project will be documented in this file. This change
    :content #bytes "48656C6C6F2C20776F726C6421"}
   ```
 
-  `:flags` is plural, so using a keyword was a mistake. The only currently supported values are `:none` and `:transactional`, but we must support more than one flag so that we can accommodate it if PostgreSQL decides to add one.
+  `:flags` is plural, so using a keyword was a mistake. The only currently supported value is `:transactional`, but we must support more than one flag so that we can accommodate it if PostgreSQL decides to add one.
 
 - Fix binary encoding of unbounded ranges (e.g. `int8range`)
 

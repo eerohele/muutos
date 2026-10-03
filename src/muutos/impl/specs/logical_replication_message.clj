@@ -54,10 +54,9 @@
 
 (spec/def :message/flags
   (spec/with-gen
-    (fn [s] (set/subset? s #{:none :transactional}))
-    #(gen/frequency [[50 (gen/return #{:none})]
-                     [50 (gen/return #{:transactional})]
-                     [0 (gen/return #{:none :transactional})]])))
+    (fn [s] (set/subset? s #{:transactional}))
+    #(gen/frequency [[50 (gen/return #{})]
+                     [50 (gen/return #{:transactional})]])))
 
 (spec/def ::string (spec/and string? (fn [s] (not= "\0" s))))
 

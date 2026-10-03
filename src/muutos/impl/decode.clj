@@ -69,7 +69,7 @@
 (defn decode-message [^ByteBuffer bb state]
   (let [xid (when (xid? state) (int32 bb))
         flags (case (int8 bb)
-                0 #{:none}
+                0 #{}
                 1 #{:transactional}
                 #{})
         lsn (int64 bb)
