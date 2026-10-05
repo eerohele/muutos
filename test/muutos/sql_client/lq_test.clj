@@ -306,3 +306,28 @@
     (let [sum (sql/lq "SELECT $1||$2||$3||$4||$5||$6||$7||$8||$9||$10||$11||$12||$13||$14||$15||$16||$17||$18||$19||$20||$21 AS s")]
       (is (= [{:s "aaaaaaaaaaaaaaaaaaaaa"}]
             (into [] (sum pg "a" "a" "a" "a" "a" "a" "a" "a" "a" "a" "a" "a" "a" "a" "a" "a" "a" "a" "a" "a" "a")))))))
+
+(deftest impl-seqable
+  (with-open [pg ($)]
+    (let [q (sql/lq "SELECT typname AS name, oid
+                     FROM pg_type
+                     WHERE typcategory = ANY($1) AND NOT typname LIKE 'pg_%'
+                     ORDER BY oid ASC
+                     LIMIT 5")]
+      (is (= {:name "char" :oid 18}
+            (first (q pg (char-array [\S \Z])))))
+
+      (is (= '({:name "char" :oid 18}
+               {:name "name" :oid 19}
+               {:name "text" :oid 25}
+               {:name "bpchar" :oid 1042}
+               {:name "varchar" :oid 1043})
+            (seq (q pg (char-array [\S \Z])))))
+
+      (is (= '({:name "char" :oid 18}
+               {:name "name" :oid 19})
+            (take 2 (q pg (char-array [\S \Z])))))
+
+      (is (= '({:name "text" :oid 25}
+               {:name "bpchar" :oid 1042})
+            (take 2 (drop 2 (q pg (char-array [\S \Z])))))))))

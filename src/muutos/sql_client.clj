@@ -15,7 +15,7 @@
             [muutos.impl.lockable :refer [Lockable with-lock]]
             [muutos.impl.type :as type]
             [muutos.impl.statement :as stmt])
-  (:import (clojure.lang IFn IReduceInit)
+  (:import (clojure.lang IFn IReduceInit Seqable)
            (java.lang AutoCloseable)
            (java.util.concurrent ConcurrentHashMap)
            (java.util.concurrent.locks ReentrantLock)))
@@ -340,6 +340,10 @@
          attrs (ConcurrentHashMap.)
          execute (fn [client parameters]
                    (reify
+                     Seqable
+                     (seq [this]
+                       (seq (persistent! (reduce conj! (transient []) this))))
+
                      IReduceInit
                      (reduce [_ rf init]
                        (let [client-id (client/id client)]
