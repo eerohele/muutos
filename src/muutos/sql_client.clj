@@ -310,7 +310,7 @@
   parameters, returns a reducible of query results.
 
   Use when you need to repeatedly execute the same query with different
-  parameters as efficiently as possible (e.g. when handling  web app HTTP
+  parameters as efficiently as possible (e.g. when handling web app HTTP
   requests).
 
   Does not interact with the PostgreSQL until the first reduction. Only then
