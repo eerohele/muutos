@@ -18,12 +18,10 @@
             :error (recur (response :ex))
             :close-complete (recur ex)))))))
 
-(def ^:private unnamed-portal "")
-
-(defn execute [client stmt-name parameters]
+(defn execute [client stmt-name parameters & {:keys [portal max-rows] :or {portal "" max-rows 0}}]
   (let [encoded-parameters (mapv bin/encode parameters)]
-    (client/enqueue client {:type :bind :statement stmt-name :portal unnamed-portal :parameters encoded-parameters})
-    (client/enqueue client {:type :execute :portal unnamed-portal :max-rows 0})
+    (client/enqueue client {:type :bind :statement stmt-name :portal portal :parameters encoded-parameters})
+    (client/enqueue client {:type :execute :portal portal :max-rows max-rows})
     (client/enqueue client {:type :sync})
     (client/flush client)))
 
