@@ -726,6 +726,118 @@ user=> (eq pg ["SELECT $1 AS uuid, $2 AS timestamptz"
 See appendix [_Supported PostgreSQL data types_](#supported-postgresql-data-types) for the data
 types Muutos supports as parameters and in query results.
 
+### Using latent queries
+
+A **latent query** represents a SQL statement that Muutos will send to
+PostgreSQL to be parsed and compiled once, then cache the compilation
+result for repeated execution.
+
+Latent queries are useful when you need to repeatedly execute the same query
+with the same parameters but different parameter values as efficiently as
+possible, such as when handling web app HTTP requests.
+
+> [!NOTE]
+> Latent queries are an **experimental** feature and are subject to change.
+
+To create a latent query, use `muutos.sql-client/lq`. For example:
+
+```clojure
+user=> (require '[muutos.sql-client :refer [connect lq]])
+nil
+user=> (def pg (connect))
+#'user/pg
+;; Prepare a statement that, given two strings, concatenates them.
+user=> (def ++ (lq "SELECT $1 || $2 AS s"))
+#'user/++
+;; Calling the function `lq` returns returns a reducible. The first time you
+;; reduce it (here, via into), Muutos sends the SQL statement to PostgreSQL to
+;; be compiled and caches the result.
+user=> (time (into [] (++ pg "a" "b")))
+[{"s" "ab"}]
+;; Subsequent reductions use the compiled statement to avoid re-sending the
+;; same SQL string to be recompiled upon every execution.
+user=> (into [] (++ pg "c" "d"))
+[{"s" "cd"}]
+```
+
+If the plan Muutos has cached on the PostgreSQL server changes (e.g. an
+`ALTER TABLE` modifies a table the statement touches), Muutos automatically
+recreates the statement if it can, then retries. For example:
+
+```clojure
+;; Create table t.
+user=> (eq pg
+         ["CREATE TABLE t (id int PRIMARY KEY, a int)"]
+         ["INSERT INTO t (id, a) VALUES (1, 10)"])
+[[] []]
+;; Create a latent query that reads from table t.
+user=> (def t-by-ids (lq "SELECT * FROM t WHERE id = ANY($1) ORDER BY a ASC"))
+#'user/t-by-ids
+;; Execute the latent query once to cache on the server.
+user=> (into [] (t-by-ids pg (int-array [1 2 3])))
+[{"id" 1 "a" 10}]
+;; Modify the table without breaking backwards compatibility.
+user=> (eq pg ["ALTER TABLE t ADD COLUMN b int DEFAULT 0"])
+[]
+;; Adding the b column changes the cached plan, so the latent query continues
+;; to work.
+user=> (into [] (t-by-ids pg (int-array [1 2 3])))
+[{"id" 1 "a" 10 "b" 0}]
+;; Modify the table to break compatibility with t-by-ids.
+user=> (eq pg ["ALTER TABLE t DROP COLUMN a"])
+[]
+;; Muutos throws an error because column "a", which t-by-id references, no
+;; longer exists.
+user=> (into [] (t-by-ids pg (int-array [1 2 3])))
+Execution error (ExceptionInfo) at muutos.impl.decode/decode-error-response (decode.clj:475).
+column "a" does not exist
+;; Other queries continue to work.
+user=> (eq pg ["SELECT * FROM t"])
+[{"id" 1 "b" 0}]
+```
+
+#### Hinting parameter data types
+
+PostgreSQL tries to infer the data types of your parameters, but it can't
+always do that. To tell PostgreSQL which data types you'll be passing in as
+parameter values, use the `:oids` option.
+
+For example:
+
+```clojure
+;; PostgreSQL supports the + operator for more than one data type, so it
+;; doesn't know the data types of the parameters you'll be passing in.
+user=> (def sum (lq "SELECT $1 + $2 AS n"))
+#'user/sum
+;; Muutos will throw the exception when you first attempt to execute the
+;; statement, because that's the first time it sends the statement to
+;; PostgreSQL for compilation.
+user=> (first (sum pg 1 2))
+Execution error (ExceptionInfo) at muutos.impl.decode/decode-error-response (decode.clj:475).
+operator is not unique: unknown + unknown
+;; Bring in the oid helper function for mapping keywords naming PostgreSQL data
+;; types to their OIDs.
+user=> (require '[muutos.sql-client :refer [oid]])
+nil
+;; Tell PostgreSQL that you'll be passing int8s as parameters.
+user=> (def sum (lq "SELECT $1 + $2 AS n" {:oids [(oid :int8) (oid :int8)]}))
+#'user/sum
+user=> (first (sum pg 1 2))
+{"n" 3}
+;; Note that the OIDs you pass in must match the Java data types they map to
+;; exactly. For example, if you specify the parameter data types as int4s, you
+;; must cast your arguments to ints explicitly. Otherwise, you'll see a
+;; confusing error. See the "Supported PostgreSQL data types" appendix for
+;; information how Muutos maps Java data types to PostgreSQL data types.
+user=> (def sum (lq "SELECT $1 + $2 AS n" {:oids [(oid :int4) (oid :int4)]}))
+#'user/sum
+user=> (first (sum pg 1 2))
+Execution error (ExceptionInfo) at muutos.impl.decode/decode-error-response (decode.clj:475).
+incorrect binary data format in bind parameter 1
+user=> (first (sum pg (int 1) (int 2)))
+{"n" 3}
+```
+
 ### Pipelining queries
 
 Muutos supports [pipelining](https://www.postgresql.org/docs/current/protocol-flow.html#PROTOCOL-FLOW-PIPELINING) SQL queries.
