@@ -137,9 +137,7 @@
           (connection [_] connection)
 
           (enqueue [this message]
-            (if-not (connection/closed? connection)
-              (connection/write connection message)
-              (anomaly! "Disconnected from server; can't send" ::anomalies/incorrect {:reason :disconnected})))
+            (connection/enqueue connection message))
 
           (flush [this]
             (connection/flush connection))

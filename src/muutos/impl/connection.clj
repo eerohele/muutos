@@ -21,6 +21,9 @@
   (closed? [this]
     "Return true iff this connection is closed.")
 
+  (enqueue [this msg]
+    "Enqueue a message to be sent to the connected PostgreSQL instance.")
+
   (secure? [this]
     "Return true iff this connection uses TLS encryption to secure comms with the server.")
 
@@ -68,6 +71,11 @@
     (reify Connection
       (closed? [_]
         (Socket/.isClosed (socket)))
+
+      (enqueue [this msg]
+        (if-not (closed? this)
+          (write this msg)
+          (anomaly! "Disconnected from server; can't send" ::anomalies/incorrect {:reason :disconnected})))
 
       (secure [this options]
         (with-lock this
