@@ -6,17 +6,12 @@
             [muutos.impl.data-type :as data-type]
             [muutos.error :as-alias error]
             [muutos.impl.charset :as charset])
-  (:import (clojure.lang ExceptionInfo PersistentArrayMap PersistentHashMap)
+  (:import (clojure.lang ExceptionInfo)
            (java.lang Iterable)
            (java.nio ByteBuffer)
            (java.util Iterator)))
 
 (set! *warn-on-reflection* true)
-
-(defn ^:private empty-map [size]
-  (if (<= size 8)
-    PersistentArrayMap/EMPTY
-    PersistentHashMap/EMPTY))
 
 (defn ^:private decode-bin
   [query-fn data-type-oid ^ByteBuffer bb attempts]
@@ -47,7 +42,7 @@
                 :or {format :txt}}]
   (let [^Iterator attr-defs-it (.iterator ^Iterable attrs)
         ^Iterator vals-it (.iterator ^Iterable tuple)]
-    (loop [m (-> attrs count empty-map transient)]
+    (loop [m (transient {})]
       (if (and (.hasNext attr-defs-it) (.hasNext vals-it))
         (let [n-attr (.next attr-defs-it)
               n-val (cond-> (.next vals-it) (identical? format :txt) (some-> charset/string))
