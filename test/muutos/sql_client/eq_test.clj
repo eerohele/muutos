@@ -49,17 +49,17 @@
 (deftest ^:integration read-error
   (clear-db! :port 5433)
 
-  (let [proxy (disruptor/proxy :bind-port 10080 :connect-port 5433)]
-    (with-open [pg (connect {:port 10080})]
-      (is (= [{"?column?" 1}] (eq pg ["SELECT $1" 1])))
-      (AutoCloseable/.close proxy)
+  (with-open [proxy (disruptor/proxy :bind-port 10080 :connect-port 5433)
+              pg (connect {:port 10080})]
+    (is (= [{"?column?" 1}] (eq pg ["SELECT $1" 1])))
+    (AutoCloseable/.close proxy)
 
-      (Thread/sleep 1000)
+    (Thread/sleep 1000)
 
-      ;; FIXME: Make more specific/deterministic. This at least checks the event
-      ;; loop won't hang, though.
-      (is (thrown? Exception (eq pg ["SELECT $1" 1])))
-      (is (thrown? Exception (eq pg ["SELECT $1" 1]))))))
+    ;; FIXME: Make more specific/deterministic. This at least checks the event
+    ;; loop won't hang, though.
+    (is (thrown? Exception (eq pg ["SELECT $1" 1])))
+    (is (thrown? Exception (eq pg ["SELECT $1" 1])))))
 
 (comment
   (def server (server/start container-opts))

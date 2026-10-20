@@ -2,12 +2,12 @@
   (:refer-clojure :exclude [proxy])
   (:import (java.lang AutoCloseable)
            (org.netcrusher.core.reactor NioReactor)
-           (org.netcrusher.tcp TcpCrusherBuilder)))
+           (org.netcrusher.tcp TcpCrusher TcpCrusherBuilder)))
 
 (set! *warn-on-reflection* true)
 
-(defn proxy [& {:keys [bind-address bind-port connect-address connect-port]
-                :or {bind-address "localhost" connect-address "localhost"}}]
+(defn proxy ^AutoCloseable [& {:keys [bind-address bind-port connect-address connect-port]
+                               :or {bind-address "localhost" connect-address "localhost"}}]
   (let [reactor (NioReactor.)
         crusher (->
                   (TcpCrusherBuilder/builder)
@@ -17,5 +17,5 @@
                   (TcpCrusherBuilder/.buildAndOpen))]
     (reify AutoCloseable
       (close [_]
-        (AutoCloseable/.close crusher)
-        (AutoCloseable/.close reactor)))))
+        (TcpCrusher/.close crusher)
+        (NioReactor/.close reactor)))))
