@@ -39,7 +39,11 @@
     "Write a java.nio.ByteBuffer into a socket.")
 
   (flush [this]
-    "Flush all buffered writes."))
+    "Flush all buffered writes.")
+
+  (alive? [this]
+    "Return true iff this connection is alive (able to synchronize with the
+    connected PostgreSQL server)."))
 
 (defn ^:private read-n-bytes ^bytes [in n]
   (let [read-bytes (InputStream/.readNBytes in n)]
@@ -53,6 +57,9 @@
   (let [output-stream (-> socket .getOutputStream BufferedOutputStream.)
         input-stream (-> socket .getInputStream BufferedInputStream.)]
     (IO. socket input-stream output-stream)))
+
+(defn ^:private disconnected? [ex]
+  (identical? ::anomalies/unavailable (-> ex ex-data ::anomalies/category)))
 
 (defn ^:private make [^Socket initial-socket]
   ;; Must store socket state in atom to swap it for an SSLSocket.
@@ -127,6 +134,17 @@
 
       (flush [_]
         (BufferedOutputStream/.flush (output-stream)))
+
+      (alive? [this]
+        (try
+          (with-lock this
+            (enqueue this {:type :sync})
+            (flush this)
+            (identical? :ready-for-query (-> this (read {}) :type)))
+          (catch ExceptionInfo ex
+            (if (disconnected? ex)
+              false
+              (throw ex)))))
 
       AutoCloseable
       (close [this]
