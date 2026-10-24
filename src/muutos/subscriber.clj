@@ -332,10 +332,12 @@
         _
         (doto (Thread/ofVirtual) (.start task))
 
+        -id (random-uuid)
+
         client
         (reify
           client/Client
-          (id [_] (random-uuid))
+          (id [_] -id)
 
           (options [_] options)
 
