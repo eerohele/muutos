@@ -110,7 +110,6 @@
 
         -lock (ReentrantLock.)
         connection (connection/open options)
-        session (connection/start-session connection options)
         client-id (random-uuid)
 
         client
@@ -151,7 +150,7 @@
 
     (hook/on-shutdown (AutoCloseable/.close client))
 
-    (with-meta client (assoc session :options (select-keys options [:key-fn])))))
+    (with-meta client (meta connection))))
 
 (def ^:private unnamed-statement "")
 (def ^:private unnamed-portal "")
