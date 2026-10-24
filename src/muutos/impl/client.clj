@@ -131,12 +131,3 @@
       (connection/write connection startup-message)
       (connection/flush connection)
       (authentication-flow connection options))))
-
-(def default-options
-  {:host "localhost"
-   :user "postgres"
-   :database "postgres"
-   :replication false
-   :password "postgres"
-   :port 5432
-   :key-fn (fn [_table-oid attr-name] attr-name)})

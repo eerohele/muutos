@@ -23,11 +23,6 @@
 (set! *warn-on-reflection* true)
 (set! *unchecked-math* :warn-on-boxed)
 
-(def ^:private default-options
-  (assoc client/default-options
-    :application_name "Muutos SQL Client"
-    :key-fn (fn [_table-oid attr-name] attr-name)))
-
 #_{:clj-kondo/ignore [:unused-binding]}
 (defn connect
   "Connect to a PostgreSQL database.
@@ -111,7 +106,7 @@
                      :or {oid-fn (constantly nil)
                           log (constantly nil)}
                      :as options}]
-  (let [options (merge default-options options)
+  (let [options (merge connection/default-options options)
 
         aux-client (when-not (= :aux (:client-type options))
                      (let [aux-options (-> options

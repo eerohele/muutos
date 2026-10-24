@@ -17,6 +17,16 @@
 (set! *warn-on-reflection* true)
 (set! *unchecked-math* :warn-on-boxed)
 
+(def default-options
+  {:host "localhost"
+   :user "postgres"
+   :database "postgres"
+   :replication false
+   :password "postgres"
+   :port 5432
+   :key-fn (fn [_table-oid attr-name] attr-name)
+   :application_name "Muutos SQL Client"})
+
 (defprotocol ^:private Connection
   (closed? [this]
     "Return true iff this connection is closed.")

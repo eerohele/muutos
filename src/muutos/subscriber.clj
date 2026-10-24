@@ -260,7 +260,7 @@
            messages? true
            ack-interval (Duration/ofSeconds 10)}}]
   ;; Allow passing in custom muutos.impl.connection/Connection to simulate network errors.
-  (let [{:keys [key-fn] :as options} (merge client/default-options
+  (let [{:keys [key-fn] :as options} (merge connection/default-options
                                        {:protocol-version 2
                                         :streaming false
                                         :replication :database}
