@@ -110,7 +110,7 @@
 
         -lock (ReentrantLock.)
         connection (connection/open options)
-        session (client/start-session connection options)
+        session (connection/start-session connection options)
         client-id (random-uuid)
 
         client
