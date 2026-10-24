@@ -108,12 +108,6 @@
                      :as options}]
   (let [options (merge connection/default-options options)
 
-        aux-client (when-not (= :aux (:client-type options))
-                     (let [aux-options (-> options
-                                         (select-keys [:host :port :user :password :database :trust-managers :connect-timeout])
-                                         (assoc :client-type :aux))]
-                       (connect aux-options)))
-
         -lock (ReentrantLock.)
         connection (connection/open options)
         session (client/start-session connection options)
@@ -143,15 +137,17 @@
           (oid [_ x]
             (or (oid-fn x) (type/oid x)))
 
-          (aux [_] aux-client)
+          (aux [_ f]
+            (let [aux-options (select-keys options [:host :port :user :password :database :trust-managers :connect-timeout])]
+              (with-open [pg (connect aux-options)]
+                (f pg))))
 
           Lockable
           (lock [_] -lock)
 
           AutoCloseable
           (close [this]
-            (AutoCloseable/.close connection)
-            (some-> aux-client AutoCloseable/.close)))]
+            (AutoCloseable/.close connection)))]
 
     (hook/on-shutdown (AutoCloseable/.close client))
 
@@ -258,7 +254,7 @@
                                       :data-row
                                       (let [attrs (row-description :attrs)
                                             tuples (response :tuple)
-                                            data-row (data-row/parse attrs tuples {:query-fn (fn [qvec] (eq (client/aux client) qvec)) :key-fn key-fn :format :bin})]
+                                            data-row (data-row/parse attrs tuples {:query-fn (fn [qvec] (client/aux client (fn [pg] (eq pg qvec)))) :key-fn key-fn :format :bin})]
                                         (recur command-complete row-description (conj! data data-row) ex)))))
                                 (catch Throwable ex
                                   ;; If the event loop throws e.g. an OutOfMemoryError, let it crash to
@@ -350,7 +346,7 @@
                            (stmt/execute client stmt-name parameters)
 
                            (let [{:keys [key-fn]} (client/options client)
-                                 query-fn (fn [qvec] (eq (client/aux client) qvec))]
+                                 query-fn (fn [qvec] (client/aux client (fn [pg] (eq pg qvec))))]
                              (loop [attrs (ConcurrentHashMap/.get attrs client-id)
                                     data init
                                     ex nil]
@@ -541,7 +537,7 @@
                :data-row
                (let [attrs (row-description :attrs)
                      tuples (response :tuple)
-                     data-row (data-row/parse attrs tuples {:query-fn (fn [qvec] (eq (client/aux client) qvec)) :key-fn key-fn :format :txt})]
+                     data-row (data-row/parse attrs tuples {:query-fn (fn [qvec] (client/aux client (fn [pg] (eq pg qvec)))) :key-fn key-fn :format :txt})]
                  (recur command-complete row-description (conj! data data-row) ex)))))
          (catch Throwable ex
            ;; If the event loop throws e.g. an OutOfMemoryError, let it crash to
