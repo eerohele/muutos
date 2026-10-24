@@ -275,7 +275,7 @@
         recvq (ArrayBlockingQueue. 1)
         exec-handler (or executor (flow-controlling-executor))
         exec-lsn-flusher (Executors/newSingleThreadScheduledExecutor (thread/factory "me.flowthing.muutos/lsn-flusher"))
-        _ (client/start-session connection (assoc options :application_name "Muutos Subscriber"))
+        _ (connection/start-session connection (assoc options :application_name "Muutos Subscriber"))
 
         exit-signal (promise)
 

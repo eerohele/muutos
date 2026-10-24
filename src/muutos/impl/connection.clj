@@ -1,12 +1,18 @@
 (ns ^:no-doc muutos.impl.connection
   (:refer-clojure :exclude [flush read])
-  (:require [cognitect.anomalies :as-alias anomalies]
+  (:require [clojure.string :as string]
+            [cognitect.anomalies :as-alias anomalies]
             [muutos.impl.anomaly :as anomaly :refer [anomaly!]]
+            [muutos.impl.base64 :as base64]
             [muutos.impl.decode :as decode]
             [muutos.impl.encode :as encode]
+            [muutos.impl.charset :as charset]
+            [muutos.impl.client :as client]
+            [muutos.impl.crypto :as crypto]
             [muutos.impl.lockable :refer [Lockable with-lock]]
+            [muutos.impl.sasl :as sasl]
             [muutos.impl.ssl :as ssl])
-  (:import (java.io BufferedInputStream BufferedOutputStream InputStream)
+  (:import (clojure.lang ExceptionInfo) (java.io BufferedInputStream BufferedOutputStream ByteArrayOutputStream InputStream)
            (java.lang AutoCloseable)
            (java.net ConnectException InetSocketAddress Socket SocketException)
            (java.nio ByteBuffer)
@@ -173,6 +179,114 @@
 
       Lockable
       (lock [_] -lock))))
+
+(defn ^:private concat-bytes [& bas]
+  (with-open [baos (ByteArrayOutputStream.)]
+    (run! (fn [^bytes ba] (.write baos ba)) bas)
+    (.toByteArray baos)))
+
+(defn ^:private determine-channel-binding [connection]
+  (let [bs (if (secure? connection)
+             (concat-bytes
+               (charset/bytes "p=tls-server-end-point,,")
+               (certificate-hash connection))
+             (charset/bytes "n,,"))]
+    (base64/encode bs :to :string)))
+
+(defn authentication-flow
+  [connection
+   {:keys [user password notify-fn]
+    :as options}]
+  (loop [state options]
+    (let [{:keys [type] :as response} (read connection {})]
+      (case type
+        :error (-> response :ex throw)
+
+        :notice
+        (do
+          ((or notify-fn client/log prn) response)
+          (recur state))
+
+        :auth/clear-text-password
+        (do
+          (write connection {:type :password-message
+                                        :password password})
+          (flush connection)
+          (recur state))
+
+        :auth/sasl
+        (let [client-nonce (sasl/nonce)
+              mechanism (response :mechanism)
+              client-initial-response {:type :sasl-initial-response
+                                       :channel-binding (= "SCRAM-SHA-256-PLUS" mechanism)
+                                       :mechanism mechanism
+                                       :user user
+                                       :nonce client-nonce}]
+          (write connection client-initial-response)
+          (flush connection)
+          (recur (assoc state :client-nonce client-nonce :auth-mechanism mechanism :user user)))
+
+        :auth/sasl-continue
+        (let [salt (response :salt)
+              iteration-count (response :iteration-count)
+              server-first-message (response :raw-message)
+              server-nonce (response :nonce)
+              salted-password (crypto/pbkdf2 password salt iteration-count)
+              client-first-message-bare (format "n=%s,r=%s" user (state :client-nonce))
+              channel-binding (determine-channel-binding connection)
+              client-final-message-without-proof (format "c=%s,r=%s" channel-binding server-nonce)
+              auth-message (string/join \, [client-first-message-bare
+                                            server-first-message
+                                            client-final-message-without-proof])
+              client-proof (sasl/client-proof salted-password auth-message)
+              client-final-message (format "%s,p=%s" client-final-message-without-proof client-proof)]
+          (write connection
+            {:type :sasl-response
+             :client-final-message client-final-message})
+
+          (flush connection)
+          (recur (assoc state :salted-password salted-password :auth-message auth-message)))
+
+        :auth/sasl-final
+        (let [salted-password (state :salted-password)
+              auth-message (state :auth-message)
+              expected-server-signature (sasl/server-signature salted-password auth-message)
+              server-signature (response :server-signature)]
+          (recur (assoc state
+                   :expected-server-signature expected-server-signature
+                   :server-signature server-signature)))
+
+        :auth/ok
+        (let [expected-server-signature (state :expected-server-signature)
+              server-signature (state :server-signature)]
+          (when-not (= expected-server-signature server-signature)
+            (anomaly! "Server signature didn't match the expected value" ::anomalies/forbidden))
+
+          (recur state))
+
+        :parameter
+        (let [parameter (response :parameter)]
+          (recur (update state :backend-parameters merge parameter)))
+
+        :backend-key-data
+        (let [backend-key-data (select-keys response [:pid :secret-key])]
+          (recur (update state :backend-key-data merge backend-key-data)))
+
+        :ready-for-query
+        (select-keys state [:user :replication :backend-parameters :backend-key-data :auth-mechanism])
+
+        (anomaly! "Not implemented" ::anomalies/unsupported {:type type})))))
+
+(defn start-session
+  [connection options]
+  (let [tls-options (select-keys options [:key-managers :trust-managers :secure-random])
+        startup-parameters (select-keys options [:user :database :options :replication :application_name])
+        startup-message {:type :startup :parameters startup-parameters}]
+    (with-lock connection
+      (secure connection tls-options)
+      (write connection startup-message)
+      (flush connection)
+      (authentication-flow connection options))))
 
 (defn open
   "Given options, open a TCP socket connection to a PostgreSQL server.
