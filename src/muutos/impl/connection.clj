@@ -306,7 +306,8 @@
       The connect timeout for the TCP socket."
   [& {:keys [host port connect-timeout socket-timeout]
       :or {connect-timeout (Duration/ofMillis 0)
-           socket-timeout (Duration/ofMillis 0)}}]
+           socket-timeout (Duration/ofMillis 0)}
+      :as options}]
   (try
     (let [address (InetSocketAddress. ^String host ^long port)
           socket (doto (Socket.)
@@ -314,6 +315,8 @@
                    (.setTcpNoDelay false)
                    (.setSoTimeout (Duration/.toMillis socket-timeout)))]
       (.connect socket address (Duration/.toMillis connect-timeout))
-      (make socket))
+      (let [connection (make socket)
+            session (start-session connection options)]
+        (with-meta connection session)))
     (catch ConnectException ex
       (anomaly! "Connection refused" ::anomalies/unavailable {:host host :port port} ex))))

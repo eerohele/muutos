@@ -265,7 +265,7 @@
                                         :streaming false
                                         :replication :database}
                                        options)
-        connection (or (:connection options) (connection/open options))
+        connection (or (:connection options) (connection/open options :application_name "Muutos Subscriber"))
         reentrant-lock (ReentrantLock.)
         ;; A marker that shows whether we've successfully completed the query
         ;; the starts logical replication.
@@ -275,7 +275,6 @@
         recvq (ArrayBlockingQueue. 1)
         exec-handler (or executor (flow-controlling-executor))
         exec-lsn-flusher (Executors/newSingleThreadScheduledExecutor (thread/factory "me.flowthing.muutos/lsn-flusher"))
-        _ (connection/start-session connection (assoc options :application_name "Muutos Subscriber"))
 
         exit-signal (promise)
 
