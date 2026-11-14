@@ -8,8 +8,6 @@
             [matcher-combinators.result :as result]
             [matcher-combinators.test]
             [muutos.error :as-alias error]
-            [muutos.impl.client :as client]
-            [muutos.impl.lockable :refer [Lockable]]
             [muutos.impl.thread :as thread]
             [muutos.sql-client :refer [eq sq emit-message] :as sql-client]
             [muutos.subscriber :as subscriber]
@@ -18,13 +16,11 @@
             [muutos.type])
   (:import (clojure.lang ExceptionInfo)
            (java.lang AutoCloseable)
-           (java.net SocketException)
            (java.nio.charset StandardCharsets)
            (java.security SecureRandom)
            (java.time Duration Instant)
            (java.util Arrays)
-           (java.util.concurrent ArrayBlockingQueue BlockingQueue ExecutorService RejectedExecutionException SynchronousQueue TimeUnit)
-           (java.util.concurrent.locks ReentrantLock)))
+           (java.util.concurrent ArrayBlockingQueue BlockingQueue ExecutorService RejectedExecutionException SynchronousQueue TimeUnit)))
 
 (set! *warn-on-reflection* true)
 
@@ -746,29 +742,13 @@
       (finally
         (AutoCloseable/.close client)))))
 
-(defn ^:private broken-pipe-client []
-  (let [lock (ReentrantLock.)]
-    #_{:clj-kondo/ignore [:missing-protocol-method]}
-    (reify client/Client
-      (enqueue [_ _message]
-        (throw (SocketException. "Broken pipe")))
-
-      (flush [_] #_noop)
-
-      (oid [_ _parameter] 25)
-
-      Lockable
-      (lock [_] lock)
-
-      AutoCloseable
-      (close [_] #_noop))))
-
 (deftest ^:integration fail-type-metadata-retrieval
   ;; Check that dereffing the subscriber throws when it fails to retrieve type
   ;; metadata.
-  (let [q (SynchronousQueue. true)]
+  (let [q (SynchronousQueue. true)
+        proxy (disruptor/proxy :bind-port 10080 :connect-port 5434)]
     (with-open [_slot (replication-slot "s")
-                client (test-client)]
+                client (test-client :port 10080)]
 
       ;; Create a situation where Muutos needs to retrieve type metadata upon
       ;; receiving a logical replication message.
@@ -784,13 +764,16 @@
 
       (let [subscriber (subscriber/connect "s"
                          (test-options
-                           :sql-client (broken-pipe-client)
+                           :port 10080
                            :publications #{"p"}
                            :handler (q-handler q)))]
         (is (match? begin (poll q)))
 
-        (is (thrown-with-msg? SocketException #"Broken pipe"
-              (deref subscriber)))))))
+        ;; Close the proxy to force an error when reading type metadata (i.e.
+        ;; when handling the :type) message.
+        (AutoCloseable/.close proxy)
+
+        (is (thrown? ExceptionInfo (deref subscriber)))))))
 
 (deftest ^:integration publication-disappears
   (with-open [_slot (replication-slot "s")
