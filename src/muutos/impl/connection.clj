@@ -323,7 +323,7 @@
     (let [address (InetSocketAddress. ^String host ^long port)
           socket (doto (Socket.)
                    (.setKeepAlive true)
-                   (.setTcpNoDelay false)
+                   (.setTcpNoDelay true)
                    (.setSoTimeout (Duration/.toMillis socket-timeout)))]
       (.connect socket address (Duration/.toMillis connect-timeout))
       (let [connection (make socket)
