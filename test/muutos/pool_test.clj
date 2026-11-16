@@ -9,6 +9,13 @@
 
 (set! *warn-on-reflection* true)
 
+(deftest lease-pool-closed
+  (let [pg (pool/fill :capacity 1)]
+    (.close pg)
+
+    (is (thrown-match? ExceptionInfo {::anomalies/category ::anomalies/unavailable}
+          (sql/eq pg ["SELECT $1 AS n" 42])))))
+
 (deftest lease-available
   (with-open [pg (pool/fill :capacity 1)]
     (is (= [{"n" 42}] (sql/eq pg ["SELECT $1 AS n" 42])))))

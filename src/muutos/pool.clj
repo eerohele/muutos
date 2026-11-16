@@ -50,31 +50,33 @@
       (options [_] options)
       (log [_ level event-name data] (log level event-name data))
       (connection ^AutoCloseable [_]
-        (let [candidate (or (BlockingDeque/.pollFirst q (Duration/.toNanos lease-timeout) TimeUnit/NANOSECONDS)
-                          (anomaly! "Timed out leasing connection from pool" ::anomalies/unavailable))
-              this (if (or (recently-used? candidate) (connection/alive? candidate))
-                     candidate
-                     (replace candidate))]
-          ;; FIXME: Unnecessary allocation just to get with-open?
-          (reify
-            Connection
-            (certificate-hash [_] (connection/certificate-hash this))
-            (secure? [_] (connection/secure? this))
-            (secure [_ _] (anomaly! "Cannot secure open connection" ::anomalies/incorrect))
-            (closed? [_] (connection/closed? this))
-            (enqueue [_ msg] (connection/enqueue this msg))
-            (read [_ state] (connection/read this state))
-            (write [_ message] (connection/write this message))
-            (flush [_] (connection/flush this))
-            (alive? [_] (connection/alive? this))
-            (tx-status [_] (connection/tx-status this))
+        (if (AtomicBoolean/.get closed?)
+          (anomaly! "Pool closed" ::anomalies/unavailable)
+          (let [candidate (or (BlockingDeque/.pollFirst q (Duration/.toNanos lease-timeout) TimeUnit/NANOSECONDS)
+                            (anomaly! "Timed out leasing connection from pool" ::anomalies/unavailable))
+                this (if (or (recently-used? candidate) (connection/alive? candidate))
+                       candidate
+                       (replace candidate))]
+            ;; FIXME: Unnecessary allocation just to get with-open?
+            (reify
+              Connection
+              (certificate-hash [_] (connection/certificate-hash this))
+              (secure? [_] (connection/secure? this))
+              (secure [_ _] (anomaly! "Cannot secure open connection" ::anomalies/incorrect))
+              (closed? [_] (connection/closed? this))
+              (enqueue [_ msg] (connection/enqueue this msg))
+              (read [_ state] (connection/read this state))
+              (write [_ message] (connection/write this message))
+              (flush [_] (connection/flush this))
+              (alive? [_] (connection/alive? this))
+              (tx-status [_] (connection/tx-status this))
 
-            AutoCloseable
-            (close [_]
-              ;; FIXME: What if the queue is full when we attempt to put the
-              ;; client back into the queue? Probably kill this connection?
-              (ConcurrentHashMap/.put access-book this (System/nanoTime))
-              (BlockingDeque/.offerFirst q this)))))
+              AutoCloseable
+              (close [_]
+                ;; FIXME: What if the queue is full when we attempt to put the
+                ;; client back into the queue? Probably kill this connection?
+                (ConcurrentHashMap/.put access-book this (System/nanoTime))
+                (BlockingDeque/.offerFirst q this))))))
       (oid [_ x] (or (oid-fn x) (type/oid x)))
       (aux [_ f]
         (let [aux-options (select-keys options [:host :port :user :password :database :trust-managers :connect-timeout])]
