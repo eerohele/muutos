@@ -9,6 +9,8 @@
             [muutos.sql-client :refer [connect eq sq] :as sut]
             [muutos.codec.bin :as bin]
             [muutos.error :as-alias error]
+            [muutos.impl.client :as client]
+            [muutos.impl.connection :as connection]
             [muutos.test.array :as array]
             [muutos.test.disruptor :as disruptor]
             #_[muutos.test.fray :as fray]
@@ -810,3 +812,23 @@
 
       (is (match? [{"id" 1 "t" matchers/absent "rid" uuid}]
             (eq pg ["select * FROM t"]))))))
+
+(deftest tx-status
+  (with-open [pg (connect-test)]
+    (is (= :idle (-> pg client/connection connection/tx-status)))
+    (eq pg ["BEGIN"])
+    (is (= :busy (-> pg client/connection connection/tx-status)))
+    (eq pg ["ROLLBACK"])
+    (is (= :idle (-> pg client/connection connection/tx-status)))
+
+    (eq pg ["BEGIN"])
+
+    (is (thrown-match? ExceptionInfo
+          {:cause :syntax-error
+           :error-code "42601"}
+          (eq pg ["SYNTAX ERROR"])))
+
+    (is (= :fail (-> pg client/connection connection/tx-status)))
+    
+    (eq pg ["ROLLBACK"])
+    (is (= :idle (-> pg client/connection connection/tx-status)))))

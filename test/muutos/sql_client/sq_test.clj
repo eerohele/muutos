@@ -4,6 +4,8 @@
             [matcher-combinators.test]
             [muutos.error :as-alias error]
             [muutos.sql-client :refer [connect eq sq] :as sut]
+            [muutos.impl.client :as client]
+            [muutos.impl.connection :as connection]
             #_[muutos.test.fray :as fray]
             [muutos.type])
   (:import (clojure.lang ExceptionInfo)
@@ -275,3 +277,23 @@
 (deftest ^:integration set-parameter
   (with-open [pg (connect-test)]
     (is (= [] (sq pg "SET search_path TO public")))))
+
+(deftest ^:integration tx-status
+  (with-open [pg (connect-test)]
+    (is (= :idle (-> pg client/connection connection/tx-status)))
+    (sq pg "BEGIN")
+    (is (= :busy (-> pg client/connection connection/tx-status)))
+    (sq pg "ROLLBACK")
+    (is (= :idle (-> pg client/connection connection/tx-status)))
+
+    (sq pg "BEGIN")
+
+    (is (thrown-match? ExceptionInfo
+          {:cause :syntax-error
+           :error-code "42601"}
+          (sq pg "SYNTAX ERROR")))
+
+    (is (= :fail (-> pg client/connection connection/tx-status)))
+
+    (sq pg "ROLLBACK")
+    (is (= :idle (-> pg client/connection connection/tx-status)))))

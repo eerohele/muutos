@@ -3,6 +3,8 @@
             [clojure.test :refer [deftest is use-fixtures]]
             [cognitect.anomalies :as-alias anomalies]
             [matcher-combinators.test]
+            [muutos.impl.client :as client]
+            [muutos.impl.connection :as connection]
             [muutos.impl.statement :as stmt]
             [muutos.sql-client :refer [connect eq oid] :as sql]
             [muutos.test.concurrency :refer [concurrently]]
@@ -331,3 +333,27 @@
       (is (= '({:name "text" :oid 25}
                {:name "bpchar" :oid 1042})
             (take 2 (drop 2 (q pg (char-array [\S \Z])))))))))
+
+(def ^:private begin (sql/lq "BEGIN"))
+(def ^:private rollback (sql/lq "ROLLBACK"))
+(def ^:private syntax-error (sql/lq "SYNTAX ERROR"))
+
+(deftest tx-status
+  (with-open [pg ($)]
+    (is (= :idle (-> pg client/connection connection/tx-status)))
+    (doall (begin pg))
+    (is (= :busy (-> pg client/connection connection/tx-status)))
+    (doall (rollback pg))
+    (is (= :idle (-> pg client/connection connection/tx-status)))
+
+    (doall (begin pg))
+
+    (is (thrown-match? ExceptionInfo
+          {:cause :syntax-error
+           :error-code "42601"}
+          (doall (syntax-error pg))))
+
+    (is (= :fail (-> pg client/connection connection/tx-status)))
+
+    (doall (rollback pg))
+    (is (= :idle (-> pg client/connection connection/tx-status)))))
