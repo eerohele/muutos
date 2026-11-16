@@ -3,8 +3,9 @@
             [muutos.impl.anomaly :refer [anomaly!]]
             [muutos.impl.client :as client]
             [muutos.impl.connection :as connection :refer [Connection]]
-            [muutos.impl.lockable :as lockable :refer [Lockable with-lock]]
-            [muutos.impl.type :as type])
+            [muutos.impl.lockable :as lockable :refer [Lockable]]
+            [muutos.impl.type :as type]
+            [muutos.impl.resilience :as resilience])
   (:import (clojure.lang Ratio)
            (java.lang AutoCloseable)
            (java.time Duration)
@@ -33,7 +34,7 @@
                            (< (- (System/nanoTime) last-accessed-nanos) (Duration/.toNanos validate-after-idle))))
         replace (fn [connection]
                   (AutoCloseable/.close connection)
-                  ;; FIXME: Retry with backoff & jitter
+
                   (connection/open options))]
 
     ;; Fill up the pool with the requested number of connections.

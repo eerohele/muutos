@@ -15,3 +15,13 @@
   (anomaly! "Boom!" ::anomalies/fault)
   (anomaly! "Boom!" ::anomalies/fault {:extra :data})
   ,,,)
+
+(defn retryable?
+  "Given an exception, return true if the exception indicates that the operation
+  that threw the exception is retryable."
+  [ex]
+  (boolean
+    (#{::anomalies/unavailable
+       ::anomalies/interrupted
+       ::anomalies/busy}
+     (-> ex ex-data ::anomalies/category))))

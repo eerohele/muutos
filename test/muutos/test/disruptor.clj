@@ -6,8 +6,10 @@
 
 (set! *warn-on-reflection* true)
 
-(defn proxy ^AutoCloseable [& {:keys [bind-address bind-port connect-address connect-port]
-                               :or {bind-address "localhost" connect-address "localhost"}}]
+(defn ^:deprecated proxy
+  "DEPRECATED: Use muutos.test.tcp-crusher instead."
+  ^AutoCloseable [& {:keys [bind-address bind-port connect-address connect-port]
+                     :or {bind-address "localhost" connect-address "localhost"}}]
   (let [reactor (NioReactor.)
         crusher (->
                   (TcpCrusherBuilder/builder)

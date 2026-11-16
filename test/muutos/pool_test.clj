@@ -3,9 +3,11 @@
             [cognitect.anomalies :as-alias anomalies]
             [matcher-combinators.test]
             [muutos.pool :as pool]
-            [muutos.sql-client :as sql])
+            [muutos.sql-client :as sql]
+            [muutos.test.tcp-crusher :as tcp-crusher])
   (:import (clojure.lang ExceptionInfo)
-           (java.time Duration)))
+           (java.time Duration)
+           (org.netcrusher.tcp TcpCrusher)))
 
 (set! *warn-on-reflection* true)
 
@@ -15,6 +17,15 @@
 
     (is (thrown-match? ExceptionInfo {::anomalies/category ::anomalies/unavailable}
           (sql/eq pg ["SELECT $1 AS n" 42])))))
+
+(deftest lease-retry
+  (with-open [reactor (tcp-crusher/make-reactor)
+              crusher (tcp-crusher/make-crusher reactor :bind-port 10080 :connect-port 5433)
+              pg (pool/fill :port 10080 :capacity 1)]
+    (TcpCrusher/.close crusher)
+    (Thread/sleep 1000)
+    (TcpCrusher/.open crusher)
+    (is (= [{"?column?" 1}] (sql/eq pg ["SELECT $1" 1])))))
 
 (deftest lease-available
   (with-open [pg (pool/fill :capacity 1)]
