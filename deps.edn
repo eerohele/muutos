@@ -27,8 +27,7 @@
                                 criterium/criterium {:mvn/version "0.4.6"}
                                 com.clojure-goes-fast/clj-async-profiler {:mvn/version "2.0.0-beta1"}
                                 com.github.igrishaev/pg2-core {:mvn/version "0.1.49"}
-                                com.zaxxer/HikariCP {:mvn/version "7.0.2"}
-                                com.github.enragedginger/clj-pool-party {:mvn/version "0.2.0"}}
+                                com.zaxxer/HikariCP {:mvn/version "7.0.2"}}
                    :jvm-opts ["-Djavax.net.ssl.trustStore=dev/jks/dev.jks"
                               "-Djavax.net.ssl.trustStorePassword=muutos"
                               "-XX:+UnlockExperimentalVMOptions"

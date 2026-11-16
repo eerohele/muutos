@@ -34,7 +34,7 @@
    :key-fn (fn [_table-oid attr-name] attr-name)
    :application_name "Muutos SQL Client"})
 
-(defprotocol ^:private Connection
+(defprotocol Connection
   (closed? [this]
     "Return true iff this connection is closed.")
 

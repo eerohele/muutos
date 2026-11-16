@@ -53,7 +53,7 @@
   ,,,)
 
 (defn ^:private read-loop
-  [connection ^AtomicReference replicating? log ^BlockingQueue recvq lsn-flush-state initial-state handler]
+  [connection log ^BlockingQueue lsn-flush-state initial-state handler]
   (loop [state initial-state]
     (let [[recur? state]
           (try
@@ -62,18 +62,14 @@
                 :error
                 (let [ex (message :ex)]
                   ;; An exception might be thrown either during replication or when running
-                  ;; the startup query. In the former case, log the error. In the latter case,
-                  ;; put the error into recvq to return it to the caller.
+                  ;; the startup query.
                   (log :error ::server-error {:ex (Throwable->map ex)})
-                  (.put recvq message)
                   ;; If we're replicating, immediately throw the error so that dereferencing
                   ;; the subscriber throws.
                   ;;
                   ;; If we're in the middle of processing the startup query, recur to ultimately
                   ;; hand the exception to the caller.
-                  (if (AtomicReference/.get replicating?)
-                    (throw ex)
-                    [true state]))
+                  (throw ex))
 
                 :copy-data
                 (case (-> message :data :type)
@@ -96,21 +92,17 @@
                     (log :warn ::unknown-copy-data-message {:type type :message message})
                     [true state]))
 
-                (do
-                  ;; Progress the event loop initialized by the startup query.
-                  (.put recvq message)
-                  [true state])))
+                [true state]))
             (catch SocketException ex
-              (.offer recvq {:type :error :ex ex})
-              (when (AtomicReference/.get replicating?)
-                (throw ex)))
+              (throw ex))
             (catch Exception ex
               (when-not (= "Closed by interrupt" (ex-message ex))
                 (log :error ::read-loop-error {:ex (Throwable->map ex)}))
               (throw ex)))]
-      (if recur?
-        (recur state)
-        :ok))))
+      (cond
+        recur? (recur state)
+        (:ex state) (throw (:ex state))
+        :else :ok))))
 
 (defn flow-controlling-executor
   "Return a single-thread `java.util.concurrent.ExecutorService` that runs off
@@ -265,14 +257,10 @@
                                         :streaming false
                                         :replication :database}
                                        options)
-        connection (or (:connection options) (connection/open options :application_name "Muutos Subscriber"))
+        connection (connection/open options #_#_:application_name "Muutos Subscriber")
         reentrant-lock (ReentrantLock.)
-        ;; A marker that shows whether we've successfully completed the query
-        ;; the starts logical replication.
-        replicating? (AtomicReference. false)
         closed? (AtomicReference. false)
         lsn-flush-state (atom {:unflushed-lsn nil :flushed-lsn start-lsn})
-        recvq (ArrayBlockingQueue. 1)
         exec-handler (or executor (flow-controlling-executor))
         exec-lsn-flusher (Executors/newSingleThreadScheduledExecutor (thread/factory "me.flowthing.muutos/lsn-flusher"))
 
@@ -298,15 +286,38 @@
                   ;; having been processed, send the exit signal.
                   (deliver exit-signal ex))))))
 
-        sql-client (or (:sql-client options)
-                     (sql-client/connect
-                       (dissoc options :key-fn :replication)))
+        sql-client (sql-client/connect (dissoc options :key-fn :replication))
+
+        startup-query-client
+        #_{:clj-kondo/ignore [:missing-protocol-method]}
+        (reify client/Client
+          (options [_] options)
+          (connection [_]
+            (reify
+              connection/Connection
+              (certificate-hash [_] (connection/certificate-hash connection))
+              (secure? [_] (connection/secure? connection))
+              (secure [_ _] (anomaly! "Cannot secure open connection" ::anomalies/incorrect))
+              (closed? [_] (connection/closed? connection))
+              (enqueue [_ msg] (connection/enqueue connection msg))
+              (read [_ state] (connection/read connection state))
+              (write [_ message] (connection/write connection message))
+              (flush [_] (connection/flush connection))
+
+              AutoCloseable
+              (close [_])))
+
+          Lockable
+          (lock [_] reentrant-lock)
+
+          AutoCloseable
+          (close [_]))
 
         ^FutureTask task
         (FutureTask.
           (^:once fn* []
            (try
-             (let [ret (read-loop connection replicating? log recvq lsn-flush-state
+             (let [ret (read-loop connection log lsn-flush-state
                          {:streaming (:streaming options)
                           :protocol-version (:protocol-version options)
                           :sql-client sql-client
@@ -329,9 +340,6 @@
              (catch Throwable ex
                (deliver exit-signal ex)))))
 
-        _
-        (doto (Thread/ofVirtual) (.start task))
-
         -id (random-uuid)
 
         client
@@ -341,23 +349,17 @@
 
           (options [_] options)
 
-          (aux [_] nil)
+          (aux [_ _] nil)
 
           (log [_ level event-name data]
             (log level event-name data))
 
           (connection [_] connection)
 
-          (enqueue [_ message]
-            (connection/enqueue connection message))
-
-          (flush [_]
-            (connection/flush connection))
-
-          (recv [_] (.take recvq))
-
           (oid [_ _]
             (anomaly! "Not supported" ::anomalies/unsupported))
+
+          (stats [_] {})
 
           Lockable
           (lock [_] reentrant-lock)
@@ -381,7 +383,6 @@
 
                 (log :info ::last-flushed-lsn {:lsn (lsn->hex-string (-> lsn-flush-state deref :flushed-lsn))})
 
-                (AtomicReference/.set replicating? false)
                 (FutureTask/.cancel task true)
                 (AutoCloseable/.close connection)
                 (AutoCloseable/.close sql-client)
@@ -405,7 +406,7 @@
                 ret-or-ex))))]
 
     (try
-      (impl/run-start-query client
+      (impl/run-start-query startup-query-client
         :slot-name slot-name
         :protocol-version (:protocol-version options)
         :start-lsn (if (number? start-lsn) (lsn->hex-string start-lsn) start-lsn)
@@ -413,7 +414,8 @@
         :messages? messages?
         :streaming (:streaming options))
 
-      (AtomicReference/.set replicating? true)
+      ;; Start the logical replication read loop.
+      (doto (Thread/ofVirtual) (.start task))
 
       (.scheduleWithFixedDelay exec-lsn-flusher
         flush-lsn

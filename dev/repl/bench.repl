@@ -199,32 +199,22 @@
   (bench/quick-bench)
   (allocated-bytes))
 
-(require '[com.github.enragedginger.clj-pool-party.core :as pool])
+(require '[muutos.pool :as pool])
 
-(def pool
-  ;; Create a connection pool with ten maximum connections.
-  (pool/build-pool
-    (fn [] (sql/connect :key-fn (fn [_ attr-name] (keyword attr-name))))
-    10
-    {:close-fn (fn [pg] (AutoCloseable/.close pg))}))
+(def pool (pool/fill :key-fn (fn [_ attr-name] (keyword attr-name))))
+(add-shutdown-hook (.close pool))
 
-(add-shutdown-hook (pool/evict-all pool))
-
-(println)
-(println "muutos with connection pool (with contention)")
 (->
   (concurrently {:threads 1000}
-    (pool/with-object pool
-      (fn [pg]
-        (assert (= [{:release_year 2008
-                     :length 170
-                     :language "German"
-                     :title "ARTIST COLDBLOODED"
-                     :rating "NC-17"
-                     :description "A Stunning Reflection of a Robot And a Moose who must Challenge a Woman in California"
-                     :rental_rate 2.99M
-                     :replacement_cost 10.99M}]
-                  (sql/eq pg [q-film-by-id 42]))))))
+    (assert (= [{:release_year 2008
+                 :length 170
+                 :language "German"
+                 :title "ARTIST COLDBLOODED"
+                 :rating "NC-17"
+                 :description "A Stunning Reflection of a Robot And a Moose who must Challenge a Woman in California"
+                 :rental_rate 2.99M
+                 :replacement_cost 10.99M}]
+              (sql/eq pool [q-film-by-id 42]))))
   (bench/quick-bench)
   (allocated-bytes))
 
@@ -322,9 +312,7 @@
 (println "muutos prepare & pool (with contention)")
 (->
   (concurrently {:threads 1000}
-    (pool/with-object pool
-      (fn [pg]
-        (assert (= films (into [] (film-by-id pg (int 1))))))))
+    (assert (= films (into [] (film-by-id pool (int 1))))))
   (bench/quick-bench)
   (allocated-bytes))
 
