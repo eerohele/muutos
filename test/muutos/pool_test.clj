@@ -25,3 +25,14 @@
 
     (is (thrown-match? ExceptionInfo {::anomalies/category ::anomalies/unavailable}
           (sql/eq pg ["SELECT $1 AS n" 42])))))
+
+;; Eh, maybe not?
+#_(deftest return-busy
+  (with-open [pg (pool/fill :capacity 1)]
+    (sql/eq pg ["BEGIN"] ["CREATE TEMPORARY TABLE t (n int)"] ["INSERT INTO t (n) VALUES (1)"])
+
+    (is (thrown-match? ExceptionInfo
+          {:cause :undefined-table
+           :error-code "42P01"
+           :severity "ERROR"}
+          (sql/eq pg ["SELECT * FROM t"])))))
