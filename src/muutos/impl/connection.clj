@@ -18,6 +18,7 @@
            (java.nio ByteBuffer)
            (javax.net.ssl SSLSocket)
            (java.time Duration)
+           (java.util.concurrent.atomic AtomicReference)
            (java.util.concurrent.locks ReentrantLock)))
 
 (set! *warn-on-reflection* true)
@@ -57,6 +58,9 @@
   (flush [this]
     "Flush all buffered writes.")
 
+  (tx-status [this]
+    "Get the transaction status of this connection.")
+
   (alive? [this]
     "Return true iff this connection is alive (able to synchronize with the
     connected PostgreSQL server)."))
@@ -90,7 +94,8 @@
                        offset (+ (.arrayOffset bb) (.position bb))
                        length (.remaining bb)]
                    (BufferedOutputStream/.write os bytes offset length)
-                   (.position bb (.limit bb))))]
+                   (.position bb (.limit bb))))
+        tx-status (AtomicReference. :idle)]
     (reify Connection
       (closed? [_]
         (Socket/.isClosed (socket)))
@@ -143,13 +148,19 @@
           ;; Prepare the buffer for reading.
           (.flip buffer)
           ;; Hand the buffer to the decoder, which turns it into a Clojure map.
-          (decode/decode buffer state)))
+          (let [msg (decode/decode buffer state)]
+            (when (= :ready-for-query (:type msg))
+              (AtomicReference/.set tx-status (:tx-status msg)))
+            msg)))
 
       (write [_ message]
         (-write (output-stream) message))
 
       (flush [_]
         (BufferedOutputStream/.flush (output-stream)))
+
+      (tx-status [_]
+        (AtomicReference/.get tx-status))
 
       (alive? [this]
         (try
