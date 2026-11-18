@@ -313,10 +313,10 @@
     :socket-timeout (java.time.Duration, defauklt: \"PT0S\")
       The SO_TIMEOUT value for the TCP socket.
 
-    :connect-timeout (java.time.Duration, default: \"PT0S\")
+    :connect-timeout (java.time.Duration, default: \"PT10S\")
       The connect timeout for the TCP socket."
   [& {:keys [host port connect-timeout socket-timeout]
-      :or {connect-timeout (Duration/ofMillis 0)
+      :or {connect-timeout (Duration/ofSeconds 10)
            socket-timeout (Duration/ofMillis 0)}
       :as options}]
   (let [socket (doto (Socket.)
