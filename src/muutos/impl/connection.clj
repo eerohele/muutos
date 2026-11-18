@@ -319,15 +319,19 @@
       :or {connect-timeout (Duration/ofMillis 0)
            socket-timeout (Duration/ofMillis 0)}
       :as options}]
-  (try
-    (let [address (InetSocketAddress. ^String host ^long port)
-          socket (doto (Socket.)
-                   (.setKeepAlive true)
-                   (.setTcpNoDelay true)
-                   (.setSoTimeout (Duration/.toMillis socket-timeout)))]
-      (.connect socket address (Duration/.toMillis connect-timeout))
-      (let [connection (make socket)
-            session (start-session connection options)]
-        (with-meta connection session)))
-    (catch ConnectException ex
-      (anomaly! "Connection refused" ::anomalies/unavailable {:host host :port port} ex))))
+  (let [socket (doto (Socket.)
+                 (.setKeepAlive true)
+                 (.setTcpNoDelay true)
+                 (.setSoTimeout (Duration/.toMillis socket-timeout)))]
+    (try
+      (let [address (InetSocketAddress. ^String host ^long port)]
+        (.connect socket address (Duration/.toMillis connect-timeout))
+        (let [connection (make socket)
+              session (start-session connection options)]
+          (with-meta connection session)))
+      (catch ConnectException ex
+        (Socket/.close socket)
+        (anomaly! "Connection refused" ::anomalies/unavailable {:host host :port port} ex))
+      (catch Exception ex
+        (Socket/.close socket)
+        (anomaly! "Error connecting to PostgreSQL server" ::anomalies/fault {:host host :port port} ex)))))
