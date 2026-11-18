@@ -51,7 +51,7 @@
     (.close pg)
 
     ;; Attempting to lease a connection from a closed pool throws.
-    (is (thrown-match? ExceptionInfo {::anomalies/category ::anomalies/unavailable}
+    (is (thrown-match? ExceptionInfo {::anomalies/category ::anomalies/incorrect}
           (sql/eq pg ["SELECT $1 AS n" 42])))))
 
 (deftest lease-reopen

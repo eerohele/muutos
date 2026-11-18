@@ -133,10 +133,14 @@
               (read [_ state] (connection/read connection state))
               (write [_ message] (connection/write connection message))
               (flush [_] (connection/flush connection))
+              (idle [_] (connection/idle connection))
+              (set-last-used! [_ nanos] (connection/set-last-used! connection nanos))
+              (alive? [_] (connection/alive? connection))
               (tx-status [_] (connection/tx-status connection))
 
               AutoCloseable
-              (close [_])))
+              (close [_]
+                (connection/set-last-used! connection (System/nanoTime)))))
 
           (oid [_ x]
             (or (oid-fn x) (type/oid x)))

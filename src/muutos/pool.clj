@@ -3,17 +3,29 @@
             [muutos.impl.anomaly :refer [anomaly!]]
             [muutos.impl.client :as client]
             [muutos.impl.connection :as connection :refer [Connection]]
-            [muutos.impl.lockable :as lockable :refer [Lockable]]
-            [muutos.impl.type :as type]
-            [muutos.impl.resilience :as resilience])
+            [muutos.impl.lockable :as lockable :refer [Lockable with-lock]]
+            [muutos.impl.type :as type])
   (:import (clojure.lang Ratio)
            (java.lang AutoCloseable)
            (java.time Duration)
+           (java.util ArrayList)
            (java.util.concurrent.atomic AtomicBoolean)
-           (java.util.concurrent BlockingDeque ConcurrentHashMap LinkedBlockingDeque TimeUnit)
+           (java.util.concurrent BlockingDeque LinkedBlockingDeque TimeUnit)
            (java.util.concurrent.locks ReentrantLock)))
 
 (set! *warn-on-reflection* true)
+
+(defn ^:private acquire-candidate [q lease-timeout]
+  (or (BlockingDeque/.pollFirst q (Duration/.toNanos lease-timeout) TimeUnit/NANOSECONDS)
+    (anomaly! "Timed out leasing connection from pool" ::anomalies/unavailable)))
+
+(defn ^:private supplant [connection options]
+  (with-lock connection
+    (AutoCloseable/.close connection)
+    (connection/open options)))
+
+(defn ^:private suitable? [connection validate-after-idle]
+  (or (<= (connection/idle connection) (Duration/.toNanos validate-after-idle)) (connection/alive? connection)))
 
 (defn fill
   ^AutoCloseable [& {:keys [oid-fn log capacity lease-timeout validate-after-idle]
@@ -27,17 +39,7 @@
         connection-lock (ReentrantLock.)
         pool-id (random-uuid)
         q (LinkedBlockingDeque. ^int capacity)
-        closed? (AtomicBoolean. false)
-        ^ConcurrentHashMap access-book (ConcurrentHashMap. (int capacity))
-        recently-used? (fn [connection]
-                         (let [last-accessed-nanos (ConcurrentHashMap/.getOrDefault access-book connection 0)
-                               delta-nanos (- (System/nanoTime) last-accessed-nanos)]
-                           (>= (Duration/.toNanos validate-after-idle) delta-nanos)))
-        supplant-connection (fn [connection]
-                              (AutoCloseable/.close connection)
-                              ;; Attempt to supplant the dead connection.
-                              (connection/open options))
-        suitable? (fn [candidate] (or (recently-used? candidate) (connection/alive? candidate)))]
+        closed? (AtomicBoolean. false)]
 
     ;; Fill up the pool with the requested number of connections.
     (BlockingDeque/.addAll q
@@ -47,37 +49,41 @@
 
     ^{:type ::pool}
     (reify
-
       client/Client
       (id [_] pool-id)
       (options [_] options)
       (log [_ level event-name data] (log level event-name data))
       (connection ^AutoCloseable [_]
         (if (AtomicBoolean/.get closed?)
-          (anomaly! "Pool closed" ::anomalies/unavailable)
-          (let [candidate (or (BlockingDeque/.pollFirst q (Duration/.toNanos lease-timeout) TimeUnit/NANOSECONDS)
-                            (anomaly! "Timed out leasing connection from pool" ::anomalies/unavailable))
-                this (if (suitable? candidate) candidate (supplant-connection candidate))]
+          (anomaly! "Pool closed" ::anomalies/incorrect)
+          (let [candidate (acquire-candidate q lease-timeout)
+                connection (or (and (suitable? candidate validate-after-idle) candidate) (supplant candidate options))]
             ;; FIXME: Unnecessary allocation just to get with-open?
             (reify
               Connection
-              (certificate-hash [_] (connection/certificate-hash this))
-              (secure? [_] (connection/secure? this))
+              (certificate-hash [_] (connection/certificate-hash connection))
+              (secure? [_] (connection/secure? connection))
               (secure [_ _] (anomaly! "Cannot secure open connection" ::anomalies/incorrect))
-              (closed? [_] (connection/closed? this))
-              (enqueue [_ msg] (connection/enqueue this msg))
-              (read [_ state] (connection/read this state))
-              (write [_ message] (connection/write this message))
-              (flush [_] (connection/flush this))
-              (alive? [_] (connection/alive? this))
-              (tx-status [_] (connection/tx-status this))
+              (closed? [_] (connection/closed? connection))
+              (enqueue [_ msg] (connection/enqueue connection msg))
+              (read [_ state] (connection/read connection state))
+              (write [_ message] (connection/write connection message))
+              (flush [_] (connection/flush connection))
+              (idle [_] (connection/idle connection))
+              (set-last-used! [_ nanos] (connection/set-last-used! connection nanos))
+              (alive? [_] (connection/alive? connection))
+              (tx-status [_] (connection/tx-status connection))
 
               AutoCloseable
               (close [_]
-                (BlockingDeque/.offerFirst q this)
-                ;; FIXME: What if the queue is full when we attempt to put the
-                ;; client back into the queue? Probably kill this connection?
-                (ConcurrentHashMap/.put access-book this (System/nanoTime)))))))
+                ;; Put the connection we just used into the front of the
+                ;; dequeue so that the next caller is likelier to get a hot
+                ;; connection.
+                ;;
+                ;; FIXME: If we can't return the connection to the pool, is
+                ;; closing it the right option? Also, need a lock here?
+                (or (BlockingDeque/.offerFirst q connection) (AutoCloseable/.close connection))
+                (connection/set-last-used! connection (System/nanoTime)))))))
       (oid [_ x] (or (oid-fn x) (type/oid x)))
       (aux [_ f]
         (let [aux-options (select-keys options [:host :port :user :password :database :trust-managers :connect-timeout])]
@@ -85,10 +91,13 @@
           (with-open [pg (fill (assoc aux-options :capacity 1))]
             (f pg))))
       (stats [_]
-        {:state (if (AtomicBoolean/.get closed?) :defunct :extant)
-         :busy (let [size (BigInteger/valueOf (BlockingDeque/.size q))
-                     cap (BigInteger/valueOf capacity)]
-                 (Ratio. (BigInteger/.subtract cap size) cap))})
+        (let [state (if (AtomicBoolean/.get closed?) :defunct :extant)]
+          {:state state
+           :busy (case state
+                   :defunct (Ratio. (BigInteger/valueOf 0) capacity)
+                   (let [size (BigInteger/valueOf (BlockingDeque/.size q))
+                         cap (BigInteger/valueOf capacity)]
+                     (Ratio. (BigInteger/.subtract cap size) cap)))}))
 
       Lockable
       (lock [_] connection-lock)
@@ -96,12 +105,9 @@
       AutoCloseable
       (close [_]
         (when-not (AtomicBoolean/.get closed?)
-
-          (dotimes [_ capacity]
-            ;; FIXME: Separate timeout for this?
-            (let [connection (BlockingDeque/.pollLast q (Duration/.toNanos lease-timeout) TimeUnit/NANOSECONDS)]
-              (some-> connection AutoCloseable/.close)))
-
+          (let [connections (ArrayList. ^int capacity)]
+            (BlockingDeque/.drainTo q connections capacity)
+            (run! AutoCloseable/.close connections))
           (AtomicBoolean/.set closed? true))))))
 
 (comment
