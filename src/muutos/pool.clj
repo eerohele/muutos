@@ -30,12 +30,16 @@
         closed? (AtomicBoolean. false)
         ^ConcurrentHashMap access-book (ConcurrentHashMap. (int capacity))
         recently-used? (fn [connection]
-                         (let [last-accessed-nanos (ConcurrentHashMap/.getOrDefault access-book connection 0)]
-                           (< (- (System/nanoTime) last-accessed-nanos) (Duration/.toNanos validate-after-idle))))
-        replace (fn [connection]
-                  (AutoCloseable/.close connection)
-
-                  (connection/open options))]
+                         (let [last-accessed-nanos (ConcurrentHashMap/.getOrDefault access-book connection 0)
+                               delta-nanos (- (System/nanoTime) last-accessed-nanos)]
+                           (>= (Duration/.toNanos validate-after-idle) delta-nanos)))
+        supplant-connection (fn [connection]
+                              (log :info ::supplant-connection :hash (hash connection))
+                              (AutoCloseable/.close connection)
+                              (resilience/with-retry {:max-retries 10 :base-delay-ms 50 :cap-ms 10000}
+                                (connection/open options)))
+        suitable? (fn [candidate]
+                    (or (recently-used? candidate) (connection/alive? candidate)))]
 
     ;; Fill up the pool with the requested number of connections.
     (BlockingDeque/.addAll q
@@ -55,9 +59,7 @@
           (anomaly! "Pool closed" ::anomalies/unavailable)
           (let [candidate (or (BlockingDeque/.pollFirst q (Duration/.toNanos lease-timeout) TimeUnit/NANOSECONDS)
                             (anomaly! "Timed out leasing connection from pool" ::anomalies/unavailable))
-                this (if (or (recently-used? candidate) (connection/alive? candidate))
-                       candidate
-                       (replace candidate))]
+                this (if (suitable? candidate) candidate (supplant-connection candidate))]
             ;; FIXME: Unnecessary allocation just to get with-open?
             (reify
               Connection
@@ -74,10 +76,10 @@
 
               AutoCloseable
               (close [_]
+                (BlockingDeque/.offerFirst q this)
                 ;; FIXME: What if the queue is full when we attempt to put the
                 ;; client back into the queue? Probably kill this connection?
-                (ConcurrentHashMap/.put access-book this (System/nanoTime))
-                (BlockingDeque/.offerFirst q this))))))
+                (ConcurrentHashMap/.put access-book this (System/nanoTime)))))))
       (oid [_ x] (or (oid-fn x) (type/oid x)))
       (aux [_ f]
         (let [aux-options (select-keys options [:host :port :user :password :database :trust-managers :connect-timeout])]

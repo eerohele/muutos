@@ -1,7 +1,7 @@
 (ns ^:no-doc muutos.impl.thread
   "Utilities for working with threads."
   (:import (java.util.concurrent BlockingQueue Executors ExecutorService LinkedBlockingQueue ThreadFactory TimeUnit)
-           (java.util.concurrent RejectedExecutionException RejectedExecutionHandler ThreadPoolExecutor ThreadPoolExecutor$AbortPolicy)
+           (java.util.concurrent Callable RejectedExecutionException RejectedExecutionHandler ThreadPoolExecutor ThreadPoolExecutor$AbortPolicy)
            (java.time Duration)))
 
 (set! *warn-on-reflection* true)
@@ -10,6 +10,11 @@
   "Execute a body in the given java.util.concurrent.Executor."
   [executor & body]
   `(ExecutorService/.execute ~executor (^:once fn* [] (do ~@body))))
+
+(defmacro submit
+  "Submit a body into the given java.util.concurrent.Executor."
+  [executor & body]
+  `(ExecutorService/.submit ~executor ^Callable (^:once fn* [] (do ~@body))))
 
 (defn factory
   "Given a thread name, return a ThreadFactory that gives every thread the
