@@ -1,15 +1,15 @@
 (ns muutos.test.tcp-crusher
-  (:import (java.lang AutoCloseable)
+  (:import (java.io Closeable)
            (org.netcrusher.core.reactor NioReactor)
            (org.netcrusher.tcp TcpCrusherBuilder)))
 
 (set! *warn-on-reflection* true)
 
-(defn make-reactor ^AutoCloseable []
+(defn make-reactor ^Closeable []
   (NioReactor.))
 
-(defn make-crusher ^AutoCloseable [reactor & {:keys [bind-address bind-port connect-address connect-port]
-                                              :or {bind-address "localhost" connect-address "localhost"}}]
+(defn make-crusher ^Closeable [reactor & {:keys [bind-address bind-port connect-address connect-port]
+                                          :or {bind-address "localhost" connect-address "localhost"}}]
   (->
     (TcpCrusherBuilder/builder)
     (TcpCrusherBuilder/.withReactor reactor)
