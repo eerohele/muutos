@@ -12,7 +12,7 @@
             [muutos.impl.data-row :as data-row]
             [muutos.impl.error :refer [handle!]]
             [muutos.impl.hook :as hook]
-            [muutos.impl.lockable :refer [Lockable with-lock]]
+            [muutos.impl.lockable :refer [Lockable]]
             [muutos.impl.type :as type]
             [muutos.impl.statement :as stmt])
   (:import (clojure.lang IFn IReduceInit Seqable)
@@ -109,7 +109,7 @@
   (let [options (merge connection/default-options options)
 
         -lock (ReentrantLock.)
-        connection (connection/open options)
+        connection (or (:connection options) (connection/open options))
         client-id (random-uuid)
 
         client
@@ -122,16 +122,25 @@
           (log [_ level event-name data]
             (log level event-name data))
 
-          (connection [_] connection)
+          (connection [_]
+            (reify
+              connection/Connection
+              (certificate-hash [_] (connection/certificate-hash connection))
+              (secure? [_] (connection/secure? connection))
+              (secure [_ _] (anomaly! "Cannot secure open connection" ::anomalies/incorrect))
+              (closed? [_] (connection/closed? connection))
+              (enqueue [_ msg] (connection/enqueue connection msg))
+              (read [_ state] (connection/read connection state))
+              (write [_ message] (connection/write connection message))
+              (flush [_] (connection/flush connection))
+              (idle [_] (connection/idle connection))
+              (set-last-used! [_ nanos] (connection/set-last-used! connection nanos))
+              (alive? [_] (connection/alive? connection))
+              (tx-status [_] (connection/tx-status connection))
 
-          (enqueue [this message]
-            (connection/enqueue connection message))
-
-          (flush [this]
-            (connection/flush connection))
-
-          (recv [_]
-            (connection/read connection {}))
+              AutoCloseable
+              (close [_]
+                (connection/set-last-used! connection (System/nanoTime)))))
 
           (oid [_ x]
             (or (oid-fn x) (type/oid x)))
@@ -160,22 +169,22 @@
 
   To run a [pipeline](https://www.postgresql.org/docs/current/protocol-flow.html#PROTOCOL-FLOW-PIPELINING) of queries, pass more than one query vector."
   [client & qs]
-  (with-lock client
+  (with-open [connection (client/connection client)]
     (let [^long n (loop [n 0 qs qs]
                     (if-some [[q & parameters] (first qs)]
                       (let [oids (mapv (fn [parameter] (client/oid client parameter)) parameters)
                             parameters (mapv bin/encode parameters)]
                         ;; FIXME: What if encoding any of these fail? Especially ones user input can affect?
-                        (client/enqueue client {:type :parse :oids oids :statement unnamed-statement :query q})
-                        (client/enqueue client {:type :describe :target :statement :name unnamed-statement})
-                        (client/enqueue client {:type :bind :statement unnamed-statement :portal unnamed-portal :parameters parameters})
-                        (client/enqueue client {:type :execute :portal unnamed-portal :max-rows 0})
+                        (connection/enqueue connection {:type :parse :oids oids :statement unnamed-statement :query q})
+                        (connection/enqueue connection {:type :describe :target :statement :name unnamed-statement})
+                        (connection/enqueue connection {:type :bind :statement unnamed-statement :portal unnamed-portal :parameters parameters})
+                        (connection/enqueue connection {:type :execute :portal unnamed-portal :max-rows 0})
                         (recur (inc n) (rest qs)))
                       n))]
 
       (when (pos? n)
-        (client/enqueue client {:type :sync})
-        (client/flush client)
+        (connection/enqueue connection {:type :sync})
+        (connection/flush connection)
 
         (let [{:keys [key-fn]} (client/options client)
 
@@ -190,7 +199,7 @@
                                        row-description {}
                                        data (transient [])
                                        ex nil]
-                                  (let [response (client/recv client)
+                                  (let [response (connection/read connection {})
                                         type (response :type)]
                                     (case type
                                       ;; If we get a :ready-for-query response here, that means an :execute
@@ -223,8 +232,8 @@
                                       (do
                                         ;; Not implemented; immediately send CopyDone to tell Postgres not to
                                         ;; wait for more data.
-                                        (client/enqueue client {:type :copy-done})
-                                        (client/flush client)
+                                        (connection/enqueue connection {:type :copy-done})
+                                        (connection/flush connection)
                                         (anomaly! "Not implemented: COPY ... FROM STDIN" ::anomalies/unsupported {:type type}))
 
                                       ;; The server sends CopyBoth in response to START_REPLICATION. If
@@ -263,7 +272,7 @@
           ;; If everything went well, we'll receive :ready-for-query only after
           ;; reading until :command-complete for every input query.
           (loop [data data]
-            (let [response (client/recv client)
+            (let [response (connection/read connection {})
                   type (response :type)]
               (case type
                 :parameter (recur (conj! data (response :parameter)))
@@ -335,21 +344,21 @@
                      IReduceInit
                      (reduce [_ rf init]
                        (let [client-id (client/id client)]
-                         (with-lock client
+                         (with-open [connection (client/connection client)]
                            ;; This approach probably allocates unnecessarily much, but since attrs
                            ;; is structurally shared, I wonder whether it actually matters all that
                            ;; much.
                            (ConcurrentHashMap/.computeIfAbsent attrs client-id
-                             (fn [_] (stmt/parse client stmt-name stmt oids)))
+                             (fn [_] (stmt/parse client connection stmt-name stmt oids)))
 
-                           (stmt/execute client stmt-name parameters)
+                           (stmt/execute connection stmt-name parameters)
 
                            (let [{:keys [key-fn]} (client/options client)
                                  query-fn (fn [qvec] (client/aux client (fn [pg] (eq pg qvec))))]
                              (loop [attrs (ConcurrentHashMap/.get attrs client-id)
                                     data init
                                     ex nil]
-                               (let [{:keys [type] :as response} (client/recv client)]
+                               (let [{:keys [type] :as response} (connection/read connection {})]
 
                                  (case type
                                    :ready-for-query
@@ -360,9 +369,9 @@
                                      ;; retry.
                                      (-> ex ex-data :error-code (= "0A000"))
                                      (do
-                                       (stmt/close client stmt-name)
-                                       (let [attrs (stmt/parse client stmt-name stmt oids)]
-                                         (stmt/execute client stmt-name parameters)
+                                       (stmt/close connection stmt-name)
+                                       (let [attrs (stmt/parse client connection stmt-name stmt oids)]
+                                         (stmt/execute connection stmt-name parameters)
                                          (recur attrs data nil)))
 
                                      ex (throw ex)
@@ -385,8 +394,8 @@
 
                                    :copy-in
                                    (do
-                                     (client/enqueue client {:type :copy-done})
-                                     (client/flush client)
+                                     (connection/enqueue connection {:type :copy-done})
+                                     (connection/flush connection)
                                      (anomaly! "Not implemented: COPY ... FROM STDIN" ::anomalies/unsupported {:type type}))
 
                                    (:command-complete :empty-query)
@@ -463,6 +472,79 @@
       (into [] (sum pg 1 2))))
   ,,,)
 
+(defn ^:private -sq [client connection q]
+  (connection/enqueue connection {:type :simple-query :query q})
+  (connection/flush connection)
+
+  (let [{:keys [key-fn]} (client/options client)]
+    (try
+      (loop [command-complete {}
+             row-description nil
+             data (transient [])
+             ex nil]
+        (let [response (connection/read connection {})
+              type (response :type)]
+          (case type
+            :ready-for-query
+            (if ex
+              (throw ex)
+              (with-meta (persistent! data) (dissoc command-complete :type)))
+
+            :error
+            (recur command-complete row-description data (:ex response))
+
+            :read-error
+            (some-> response :ex throw)
+
+            :notice
+            (do
+              (client/log client :info ::server-notice {:notice response})
+              (recur command-complete row-description data ex))
+
+            :copy-data
+            (recur command-complete row-description (conj! data (response :data)) ex)
+
+            :copy-in
+            (do
+              ;; Not implemented; immediately send CopyDone to tell Postgres not to
+              ;; wait for more data.
+              (connection/enqueue connection {:type :copy-done})
+              (connection/flush connection)
+              (let [ex (ex-info "Not implemented: COPY ... FROM STDIN"
+                         {::anomalies/category ::anomalies/unsupported :type type})]
+                (recur command-complete row-description data ex)))
+
+            ;; The server sends CopyBoth in response to START_REPLICATION. If
+            ;; START_REPLICATION is successful, it sends no further messages as a
+            ;; response to START_REPLICATION. If an error occurs (e.g. a
+            ;; publication doesn't exist), it sends an additional Error response.
+            :copy-both
+            (persistent! (conj! data (dissoc response :type)))
+
+            :command-complete
+            (recur response row-description data ex)
+
+            (:empty-query :copy-out :copy-done :no-data)
+            (recur command-complete row-description data ex)
+
+            ;; e.g. SET TIME ZONE 'Europe/Helsinki'.
+            :parameter
+            (let [parameter (response :parameter)]
+              (recur command-complete row-description (conj! data parameter) ex))
+
+            :row-description
+            (recur command-complete response data ex)
+
+            :data-row
+            (let [attrs (row-description :attrs)
+                  tuples (response :tuple)
+                  data-row (data-row/parse attrs tuples {:query-fn (fn [qvec] (client/aux client (fn [pg] (eq pg qvec)))) :key-fn key-fn :format :txt})]
+              (recur command-complete row-description (conj! data data-row) ex)))))
+      (catch Throwable ex
+        ;; If the event loop throws e.g. an OutOfMemoryError, let it crash to
+        ;; prevent the event loop from getting out of sync.
+        (handle! client ex)))))
+
 #_{:clj-kondo/ignore [:unused-binding]}
 (defn sq
   "Given a client and a query string, run a simple query.
@@ -471,77 +553,8 @@
   with trusted inputs."
   ([client q] (sq client q {}))
   ([client q opts]
-   (with-lock client
-     (client/enqueue client {:type :simple-query :query q})
-     (client/flush client)
-     (let [{:keys [key-fn]} (client/options client)]
-       (try
-         (loop [command-complete {}
-                row-description nil
-                data (transient [])
-                ex nil]
-           (let [response (client/recv client)
-                 type (response :type)]
-             (case type
-               :ready-for-query
-               (if ex
-                 (throw ex)
-                 (with-meta (persistent! data) (dissoc command-complete :type)))
-
-               :error
-               (recur command-complete row-description data (:ex response))
-
-               :read-error
-               (some-> response :ex throw)
-
-               :notice
-               (do
-                 (client/log client :info ::server-notice {:notice response})
-                 (recur command-complete row-description data ex))
-
-               :copy-data
-               (recur command-complete row-description (conj! data (response :data)) ex)
-
-               :copy-in
-               (do
-                 ;; Not implemented; immediately send CopyDone to tell Postgres not to
-                 ;; wait for more data.
-                 (client/enqueue client {:type :copy-done})
-                 (client/flush client)
-                 (let [ex (ex-info "Not implemented: COPY ... FROM STDIN"
-                            {::anomalies/category ::anomalies/unsupported :type type})]
-                   (recur command-complete row-description data ex)))
-
-               ;; The server sends CopyBoth in response to START_REPLICATION. If
-               ;; START_REPLICATION is successful, it sends no further messages as a
-               ;; response to START_REPLICATION. If an error occurs (e.g. a
-               ;; publication doesn't exist), it sends an additional Error response.
-               :copy-both
-               (persistent! (conj! data (dissoc response :type)))
-
-               :command-complete
-               (recur response row-description data ex)
-
-               (:empty-query :copy-out :copy-done :no-data)
-               (recur command-complete row-description data ex)
-
-               ;; e.g. SET TIME ZONE 'Europe/Helsinki'.
-               :parameter
-               (let [parameter (response :parameter)]
-                 (recur command-complete row-description (conj! data parameter) ex))
-
-               :row-description
-               (recur command-complete response data ex)
-
-               :data-row
-               (let [attrs (row-description :attrs)
-                     tuples (response :tuple)
-                     data-row (data-row/parse attrs tuples {:query-fn (fn [qvec] (client/aux client (fn [pg] (eq pg qvec)))) :key-fn key-fn :format :txt})]
-                 (recur command-complete row-description (conj! data data-row) ex)))))
-         (catch Throwable ex
-           ;; If the event loop throws e.g. an OutOfMemoryError, let it crash to
-           ;; prevent the event loop from getting out of sync.
-           (handle! client ex)))))))
+   (with-open [connection (client/connection client)]
+     (-sq client connection q))))
 
 (comment
   (def pg (connect))
@@ -560,49 +573,6 @@
   (sq pg "SELECT * FROM pg_type")
   ,,,)
 
-(defn begin
-  "Given a client and options, begin a transaction.
-
-  Options:
-
-    - `:isolation-level` (one of `#{:serializable :repeatable-read :read-committed :read-uncommitted}`)
-    - `:access-mode` (one of `#{:read-only :read-write}`)
-    - `:deferrable-mode` (one of `#{:deferrable :not-deferrable}`)
-
-  If you don't pass a value for an option, Muutos leaves the option unset and
-  defers the choice to PostgreSQL.
-
-  For more information about the options, see:
-
-  https://www.postgresql.org/docs/current/sql-set-transaction.html"
-  [client & {:keys [isolation-level access-mode deferrable-mode]}]
-  (sq client
-    (str "START TRANSACTION"
-      (case isolation-level
-        nil ""
-        :serializable " ISOLATION LEVEL SERIALIZABLE"
-        :repeatable-read " ISOLATION LEVEL REPEATABLE READ"
-        :read-committed " ISOLATION LEVEL READ COMMITTED"
-        :read-uncommitted " ISOLATION LEVEL READ UNCOMMITTED")
-      (case access-mode
-        nil ""
-        :read-only ", READ ONLY"
-        :read-write ", READ WRITE")
-      (case deferrable-mode
-        nil ""
-        :deferrable ", DEFERRABLE"
-        :not-deferrable ", NOT DEFERRABLE"))))
-
-(defn commit
-  "Given a client, commit the current transaction."
-  [client]
-  (sq client "COMMIT"))
-
-(defn rollback
-  "Given a client, roll back the current transaction."
-  [client]
-  (sq client "ROLLBACK"))
-
 (defmacro transact
   "EXPERIMENTAL.
 
@@ -611,23 +581,43 @@
 
   If the body throws, roll back the transaction, else commit.
 
-  See `muutos.sql-client/begin` for options.
+  Options:
 
-  See https://www.postgresql.org/docs/current/sql-set-transaction.html for more
-  information on the options."
+    - `:isolation-level` (one of `#{:serializable :repeatable-read :read-committed :read-uncommitted}`)
+    - `:access-mode` (one of `#{:read-only :read-write}`)
+    - `:deferrable-mode` (one of `#{:deferrable :not-deferrable}`)
+
+  For more information on the options, see https://www.postgresql.org/docs/current/sql-set-transaction.html."
   [client & body]
   (let [head (first body)
         options (if (map? head) head {})
         form (if (map? head) (rest body) body)]
-    `(let [client# ~client]
-       (begin client# ~options)
-       (try
-         (let [ret# (do ~@form)]
-           (commit client#)
-           ret#)
-         (catch Throwable ex#
-           (rollback client#)
-           (throw ex#))))))
+    `(let [client# ~client
+           sq# #'muutos.sql-client/-sq]
+       (with-open [connection# (client/connection client#)]
+         (sq# client# connection#
+           (str "START TRANSACTION"
+             (case (:isolation-level ~options)
+               nil ""
+               :serializable " ISOLATION LEVEL SERIALIZABLE"
+               :repeatable-read " ISOLATION LEVEL REPEATABLE READ"
+               :read-committed " ISOLATION LEVEL READ COMMITTED"
+               :read-uncommitted " ISOLATION LEVEL READ UNCOMMITTED")
+             (case (:access-mode ~options)
+               nil ""
+               :read-only ", READ ONLY"
+               :read-write ", READ WRITE")
+             (case (:deferrable-mode ~options)
+               nil ""
+               :deferrable ", DEFERRABLE"
+               :not-deferrable ", NOT DEFERRABLE")))
+         (try
+           (let [ret# (do ~@form)]
+             (sq# client# connection# "COMMIT")
+             ret#)
+           (catch Throwable ex#
+             (sq# client# connection# "ROLLBACK")
+             (throw ex#)))))))
 
 (defmacro ignoring-dupes
   "Execute body.

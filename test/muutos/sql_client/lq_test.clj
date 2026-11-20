@@ -94,7 +94,7 @@
       (is (= [{:n 3}] (into [] (sum pg 1 2))))
 
       ;; Close the statement.
-      (stmt/close pg 'sum)
+      (stmt/close (client/connection pg) 'sum)
 
       ;; Prepared statement is closed, attempting to call it throws.
       (is (thrown-match? ExceptionInfo {:cause :ERRCODE-UNDEFINED-PSTATEMENT
@@ -106,7 +106,7 @@
 (deftest close-before-execute
   (with-open [pg ($)]
     (let [sum (sql/lq "SELECT $1 + $2 AS n" {:name 'sum :oids [(oid :int8)]})]
-      (stmt/close pg 'sum)
+      (stmt/close (client/connection pg) 'sum)
       ;; Closing a prepared statement that hasn't been reduced doesn't throw.
       (is (instance? IReduceInit (sum pg 1 2))))))
 

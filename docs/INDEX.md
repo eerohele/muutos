@@ -891,11 +891,7 @@ user=> (eq pg ["SELECT typname, oid, typarray FROM pg_catalog.pg_type LIMIT 5"])
 
 ### Using connection pooling
 
-Muutos does not have a connection pool implementation.
-
-If you need connection pooling, you can use Muutos with a general-purpose connection pool, such as [clj-pool-party](https://github.com/enragedginger/clj-pool-party). See [`004_pool.repl`](/examples/004_pool.repl) for an example on how to use Muutos with clj-pool-party.
-
-(I'm planning on adding a connection pool implementation to Muutos eventually, but no promises.)
+TODO
 
 ### Closing the SQL client
 

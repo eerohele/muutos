@@ -2,11 +2,15 @@
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [cognitect.anomalies :as-alias anomalies]
             [matcher-combinators.test]
+            [muutos.impl.thread :as thread]
             [muutos.sql-client :refer [connect eq sq transact] :as sql]
             [muutos.error :as-alias error]
+            [muutos.pool :as pool]
+            [muutos.test.concurrency :refer [concurrently]]
             [muutos.type])
   (:import (clojure.lang ExceptionInfo)
-           (java.lang AutoCloseable)))
+           (java.lang AutoCloseable)
+           (java.util.concurrent Executors)))
 
 (set! *warn-on-reflection* true)
 
@@ -97,4 +101,44 @@
                                       :error-code "42P01"
                                       :kind ::error/server-error
                                       :severity "ERROR"}
-          (sq pg "SELECT * FROM t")))))
+          (sq pg "SELECT * FROM t")))
+
+    ;; Connection remains operational.
+    (is (= [{"n" 1}] (sql/eq pg ["SELECT $1 AS n" 1])))))
+
+(defn ^:private singleton? [xs] (= 1 (count xs)))
+
+(deftest pool-transaction-connection
+  (let [capacity 10
+        q "SELECT pg_sleep($1), pg_backend_pid() AS pid"]
+    (with-open [executor (Executors/newFixedThreadPool capacity)
+                pg (pool/fill
+                     :capacity capacity
+                     :database "test"
+                     :port 5432
+                     :key-fn (fn [_ attr-name] (keyword attr-name)))]
+      ;; Within a transaction, every query gets the same physical connection.
+      (transact pg
+        (is (singleton? (into #{}
+                          (comp
+                            (map (fn [_] (thread/submit executor (eq pg [q (rand 1)]))))
+                            (map deref)
+                            (map (comp :pid peek)))
+                          (range capacity))))))))
+
+(deftest pool-no-commit-on-exception
+  (with-open [pg (pool/fill :capacity 1 :database "test" :port 5432)]
+    (regardless
+      (transact pg
+        (sq pg "CREATE TABLE t (a int)")
+        (sq pg "INSERT INTO t VALUES (1)")
+        (throw (Exception.))))
+
+    (is (thrown-match? ExceptionInfo {:cause :undefined-table
+                                      :error-code "42P01"
+                                      :kind ::error/server-error
+                                      :severity "ERROR"}
+          (sq pg "SELECT * FROM t")))
+
+    ;; Pooled connection remains operational.
+    (is (= [{"n" 1}] (sql/eq pg ["SELECT $1 AS n" 1])))))

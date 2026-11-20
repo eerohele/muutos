@@ -126,7 +126,7 @@ services:
     ports:
       - "5437:5437"
     command: >
-      postgres -p 5437 -c timezone='Europe/Helsinki'
+      postgres -p 5437 -c timezone='Europe/Helsinki' -c wal_level=logical
   pg-bench-src:
     image: postgres:17
     environment:

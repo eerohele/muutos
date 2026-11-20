@@ -18,7 +18,7 @@
            (java.nio ByteBuffer)
            (javax.net.ssl SSLSocket)
            (java.time Duration)
-           (java.util.concurrent.atomic AtomicReference)
+           (java.util.concurrent.atomic AtomicLong AtomicReference)
            (java.util.concurrent.locks ReentrantLock)))
 
 (set! *warn-on-reflection* true)
@@ -34,7 +34,7 @@
    :key-fn (fn [_table-oid attr-name] attr-name)
    :application_name "Muutos SQL Client"})
 
-(defprotocol ^:private Connection
+(defprotocol Connection
   (closed? [this]
     "Return true iff this connection is closed.")
 
@@ -57,6 +57,12 @@
 
   (flush [this]
     "Flush all buffered writes.")
+
+  (set-last-used! [this nanos]
+    "Set the time (in nanoseconds) this connection was last used.")
+
+  (idle [this]
+    "Return the time (in nanoseconds) this connection has been idle.")
 
   (tx-status [this]
     "Get the transaction status of this connection.")
@@ -95,6 +101,7 @@
                        length (.remaining bb)]
                    (BufferedOutputStream/.write os bytes offset length)
                    (.position bb (.limit bb))))
+        -last-used (AtomicLong. (System/nanoTime))
         tx-status (AtomicReference. :idle)]
     (reify Connection
       (closed? [_]
@@ -158,6 +165,12 @@
 
       (flush [_]
         (BufferedOutputStream/.flush (output-stream)))
+
+      (set-last-used! [_ nanos]
+        (AtomicLong/.set -last-used nanos))
+
+      (idle [_]
+        (- (System/nanoTime) (AtomicLong/.get -last-used)))
 
       (tx-status [_]
         (AtomicReference/.get tx-status))

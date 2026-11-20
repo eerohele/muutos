@@ -6,6 +6,6 @@
   (id [this])
   (options [this])
   (log [this level event-name data])
-  (connection [this])
+  (connection ^AutoCloseable [this])
   (oid [this x])
   (aux [this f]))
