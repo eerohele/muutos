@@ -12,7 +12,7 @@
             [muutos.impl.client :as client]
             [muutos.impl.connection :as connection]
             [muutos.test.array :as array]
-            [muutos.test.disruptor :as disruptor]
+            [muutos.test.tcp-crusher :as tcp-crusher]
             #_[muutos.test.fray :as fray]
             [muutos.type])
   (:import (clojure.lang ExceptionInfo)
@@ -51,10 +51,11 @@
 (deftest ^:integration read-error
   (clear-db! :port 5433)
 
-  (with-open [proxy (disruptor/proxy :bind-port 10080 :connect-port 5433)
+  (with-open [reactor (tcp-crusher/make-reactor)
+              crusher (tcp-crusher/make-crusher reactor :bind-port 10080 :connect-port 5433)
               pg (connect {:port 10080})]
     (is (= [{"?column?" 1}] (eq pg ["SELECT $1" 1])))
-    (AutoCloseable/.close proxy)
+    (AutoCloseable/.close crusher)
 
     (Thread/sleep 1000)
 

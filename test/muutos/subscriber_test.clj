@@ -12,7 +12,7 @@
             [muutos.sql-client :refer [eq sq emit-message] :as sql-client]
             [muutos.subscriber :as subscriber]
             [muutos.test.concurrency :refer [concurrently]]
-            [muutos.test.disruptor :as disruptor]
+            [muutos.test.tcp-crusher :as tcp-crusher]
             [muutos.type])
   (:import (clojure.lang ExceptionInfo)
            (java.lang AutoCloseable)
@@ -730,13 +730,14 @@
   (clear-db! :port 5434)
 
   ;; Check that dereffing the subscriber throws when disconnected from server.
-  (let [proxy (disruptor/proxy :bind-port 10080 :connect-port 5434)
+  (let [reactor (tcp-crusher/make-reactor)
+        crusher (tcp-crusher/make-crusher reactor :bind-port 10080 :connect-port 5434)
         client (test-client :port 10080 :replication :database)]
     (try
       (sq client (format "CREATE_REPLICATION_SLOT %s LOGICAL pgoutput" "s"))
 
       (let [subscriber (subscriber/connect "s" (test-options :port 10080 :publications #{"p"}))]
-        (AutoCloseable/.close proxy)
+        (AutoCloseable/.close crusher)
         (is (thrown-match? ExceptionInfo {::anomalies/category ::anomalies/unavailable}
               (deref subscriber))))
       (finally
@@ -746,7 +747,8 @@
   ;; Check that dereffing the subscriber throws when it fails to retrieve type
   ;; metadata.
   (let [q (SynchronousQueue. true)
-        proxy (disruptor/proxy :bind-port 10080 :connect-port 5434)]
+        reactor (tcp-crusher/make-reactor)
+        crusher (tcp-crusher/make-crusher reactor :bind-port 10080 :connect-port 5434)]
     (with-open [_slot (replication-slot "s")
                 client (test-client :port 10080)]
 
@@ -771,7 +773,7 @@
 
         ;; Close the proxy to force an error when reading type metadata (i.e.
         ;; when handling the :type) message.
-        (AutoCloseable/.close proxy)
+        (AutoCloseable/.close crusher)
 
         (is (thrown? ExceptionInfo (deref subscriber)))))))
 
